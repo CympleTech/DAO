@@ -743,6 +743,7 @@ dependencies = [
  "async-fs",
  "async-lock",
  "blake3",
+ "group-chat-types",
  "image",
  "log",
  "postcard",
@@ -753,6 +754,15 @@ dependencies = [
  "tdn",
  "tdn-did",
  "tdn-storage",
+]
+
+[[package]]
+name = "group-chat-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tdn-did",
+ "tdn-types",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+[package]
+name = "group-chat-types"
+version = "0.1.0"
+authors = ["Contact <contact@cypherlink.io>"]
+edition = "2018"
+readme = "README.md"
+description = "TDN group chat types."
+repository = "https://github.com/cympletech/group-chat"
+keywords = ["distributed", "p2p", "group chat", "IM"]
+license = "MIT/Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tdn-types = { git = "https://github.com/cypherlink/TDN", branch="main", default-features = false, features = ["multiple"] }
+tdn-did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }

@@ -5,6 +5,11 @@ authors = ["CympleTech <contact@cympletech.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
 
+[workspace]
+members = [
+    "types",
+]
+
 [dependencies]
 log = "0.4"
 rand = "0.8"
@@ -21,3 +26,4 @@ sysinfo = "0.16"
 tdn = { git = "https://github.com/cypherlink/TDN", branch="main", default-features = false, features = ["multiple"] }
 tdn-did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
 tdn-storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
+group-chat-types = { version = "0.1", path = "./types" }

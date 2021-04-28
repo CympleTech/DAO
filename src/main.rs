@@ -2,8 +2,8 @@
 extern crate log;
 
 mod group;
-mod models;
 mod rpc;
+mod storage;
 
 use simplelog::{CombinedLogger, Config as LogConfig, LevelFilter};
 use std::env::args;
