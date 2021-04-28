@@ -15,6 +15,13 @@ pub(crate) struct Group {
 }
 
 impl Group {
+    pub(crate) fn new() -> Group {
+        Group {
+            managers: HashMap::new(),
+            groups: HashMap::new(),
+        }
+    }
+
     pub(crate) fn handle(&mut self, gid: GroupId, msg: RecvType) -> Result<HandleResult> {
         let mut results = HandleResult::new();
 
@@ -100,13 +107,6 @@ impl Group {
         Ok(results)
     }
 
-    pub(crate) fn new() -> Group {
-        Group {
-            managers: HashMap::new(),
-            groups: HashMap::new(),
-        }
-    }
-
     fn handle_event(
         &mut self,
         gid: &GroupId,
@@ -162,5 +162,13 @@ impl Group {
         }
 
         Ok(())
+    }
+
+    pub fn add_manager(&mut self, gid: GroupId, limit: u32) {
+        self.managers.insert(gid, limit);
+    }
+
+    pub fn remove_manager(&mut self, gid: &GroupId) {
+        self.managers.remove(gid);
     }
 }

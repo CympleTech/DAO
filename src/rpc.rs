@@ -25,5 +25,35 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, group: Arc<RwLock<Group>>) -> RpcH
         Ok(HandleResult::rpc(json!(params)))
     });
 
+    // MOCK
+    handler.add_method(
+        "add-manager",
+        |_gid: GroupId, params: Vec<RpcParam>, state: Arc<RpcState>| async move {
+            let gid = GroupId::from_hex(params[0].as_str()?)?;
+
+            let mut results = HandleResult::rpc(json!(params));
+
+            state.group.write().await.add_manager(gid, 5);
+            results.networks.push(NetworkType::AddGroup(gid));
+
+            Ok(results)
+        },
+    );
+
+    // MOCK
+    handler.add_method(
+        "remove-manager",
+        |_gid: GroupId, params: Vec<RpcParam>, state: Arc<RpcState>| async move {
+            let gid = GroupId::from_hex(params[0].as_str()?)?;
+
+            let mut results = HandleResult::rpc(json!(params));
+
+            state.group.write().await.remove_manager(&gid);
+            results.networks.push(NetworkType::DelGroup(gid));
+
+            Ok(results)
+        },
+    );
+
     handler
 }
