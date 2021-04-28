@@ -2,7 +2,6 @@
 extern crate log;
 
 mod group;
-mod layer;
 mod models;
 mod rpc;
 
@@ -59,19 +58,13 @@ pub async fn start(db_path: String) -> Result<()> {
     info!("Network Peer id : {}", peer_id.to_hex());
 
     let group = Arc::new(RwLock::new(group::Group::new()));
-    let layer = Arc::new(RwLock::new(layer::Layer::new()));
 
-    let rpc_handler = rpc::new_rpc_handler(peer_id, group.clone(), layer.clone());
+    let rpc_handler = rpc::new_rpc_handler(peer_id, group.clone());
 
     while let Ok(message) = recver.recv().await {
         match message {
             ReceiveMessage::Group(fgid, g_msg) => {
                 if let Ok(_results) = group.write().await.handle(fgid, g_msg) {
-                    //
-                }
-            }
-            ReceiveMessage::Layer(fgid, tgid, l_msg) => {
-                if let Ok(_results) = layer.write().await.handle(fgid, tgid, l_msg) {
                     //
                 }
             }

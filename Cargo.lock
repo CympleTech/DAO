@@ -735,6 +735,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "group-chat"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "async-channel",
+ "async-fs",
+ "async-lock",
+ "blake3",
+ "image",
+ "log",
+ "postcard",
+ "rand 0.8.3",
+ "serde",
+ "simplelog",
+ "sysinfo",
+ "tdn",
+ "tdn-did",
+ "tdn-storage",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1512,27 +1533,6 @@ dependencies = [
  "serde",
  "signature",
  "tdn-types",
-]
-
-[[package]]
-name = "tdn-group-chat"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "async-channel",
- "async-fs",
- "async-lock",
- "blake3",
- "image",
- "log",
- "postcard",
- "rand 0.8.3",
- "serde",
- "simplelog",
- "sysinfo",
- "tdn",
- "tdn-did",
- "tdn-storage",
 ]
 
 [[package]]

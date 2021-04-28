@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
 use tdn::types::group::GroupId;
 
+#[derive(Serialize, Deserialize)]
 pub(crate) enum GroupType {
     /// common group type, data not encrypted, and need group manager agree.
     Common,
@@ -11,6 +13,7 @@ pub(crate) enum GroupType {
 }
 
 /// GroupInfo transfer in the network.
+#[derive(Serialize, Deserialize)]
 pub(crate) enum GroupInfo {
     /// params: Group_ID, group_type, is_must_agree_by_manager,
     /// group_name, group_bio, group_avatar.

@@ -18,6 +18,6 @@ async-fs = "1.5"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "0.5", default-features = false, features = ["alloc"] }
 sysinfo = "0.16"
-tdn = { git = "https://github.com/cypherlink/TDN", branch="main", default-features = false, features = ["full"] }
+tdn = { git = "https://github.com/cypherlink/TDN", branch="main", default-features = false, features = ["multiple"] }
 tdn-did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
 tdn-storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
