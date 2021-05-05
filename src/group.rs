@@ -23,6 +23,7 @@ impl Group {
     }
 
     pub(crate) fn handle(&mut self, gid: GroupId, msg: RecvType) -> Result<HandleResult> {
+        println!("Group ID connect {:?}", gid.to_hex());
         let mut results = HandleResult::new();
 
         match msg {
