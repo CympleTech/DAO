@@ -33,10 +33,26 @@ impl Group {
                 match connect {
                     GroupConnect::Check => {
                         if let Some(limit) = self.managers.get(&gid) {
+                            let supported =
+                                vec![GroupType::Common, GroupType::Encrypted, GroupType::Open];
                             if *limit > 0 {
-                                // TODO return OK.
+                                let data = postcard::to_allocvec(&GroupResult::Check(
+                                    gid, true, supported,
+                                ))
+                                .map_err(|_e| {
+                                    new_io_error("serialize group chat result failure")
+                                })?;
+                                let s = SendType::Result(0, addr, false, false, data);
+                                results.groups.push((gid, s));
                             } else {
-                                // TODO return Err.
+                                let data = postcard::to_allocvec(&GroupResult::Check(
+                                    gid, false, supported,
+                                ))
+                                .map_err(|_e| {
+                                    new_io_error("serialize group chat result failure")
+                                })?;
+                                let s = SendType::Result(0, addr, false, false, data);
+                                results.groups.push((gid, s));
                             }
                         }
                     }

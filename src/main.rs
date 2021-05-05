@@ -38,6 +38,8 @@ pub async fn start(db_path: String) -> Result<()> {
     init_log(db_path.clone());
     info!("Core storage path {:?}", db_path);
 
+    let _client = storage::connect_database()?;
+
     let mut config = Config::load_save(db_path.clone()).await;
     config.db_path = Some(db_path.clone());
     // use self sign to bootstrap peer.

@@ -27,3 +27,4 @@ tdn = { git = "https://github.com/cypherlink/TDN", branch="main", default-featur
 tdn-did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
 tdn-storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
 group-chat-types = { version = "0.1", path = "./types" }
+postgres = "0.19"
