@@ -2,7 +2,15 @@ use serde::{Deserialize, Serialize};
 use tdn_did::Proof;
 use tdn_types::{group::GroupId, primitive::PeerAddr};
 
-#[derive(Serialize, Deserialize)]
+#[rustfmt::skip]
+pub const GROUP_CHAT_ID: GroupId = GroupId([
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 2,
+]);
+
+#[derive(Serialize, Deserialize, Debug)]
 pub enum GroupType {
     /// common group type, data not encrypted, and need group manager agree.
     Common,
@@ -96,7 +104,7 @@ pub enum JoinProof {
 pub enum GroupResult {
     /// result check.
     /// params: account, is_ok, supported_group_types.
-    Check(GroupId, bool, Vec<GroupType>),
+    Check(bool, Vec<GroupType>),
     /// result create group success.
     /// params: account, Group_ID
     Create(GroupId, GroupId, bool),

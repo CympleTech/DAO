@@ -12,13 +12,13 @@ use tdn::{
     },
 };
 
-use crate::group::Group;
+use crate::layer::Layer;
 
 pub(crate) struct RpcState {
-    pub group: Arc<RwLock<Group>>,
+    pub group: Arc<RwLock<Layer>>,
 }
 
-pub(crate) fn new_rpc_handler(addr: PeerAddr, group: Arc<RwLock<Group>>) -> RpcHandler<RpcState> {
+pub(crate) fn new_rpc_handler(addr: PeerAddr, group: Arc<RwLock<Layer>>) -> RpcHandler<RpcState> {
     let mut handler = RpcHandler::new(RpcState { group });
 
     handler.add_method("echo", |_, params, _| async move {

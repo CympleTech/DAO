@@ -2,9 +2,11 @@
 extern crate log;
 
 mod group;
+mod layer;
 mod rpc;
-mod storage;
+//mod storage;
 
+use group_chat_types::GROUP_CHAT_ID;
 use simplelog::{CombinedLogger, Config as LogConfig, LevelFilter};
 use std::env::args;
 use std::path::PathBuf;
@@ -61,15 +63,20 @@ pub async fn start(db_path: String) -> Result<()> {
     let (peer_id, sender, recver) = start_with_config(config).await.unwrap();
     info!("Network Peer id : {}", peer_id.to_hex());
 
-    let group = Arc::new(RwLock::new(group::Group::new()));
+    let layer = Arc::new(RwLock::new(layer::Layer::new()));
 
-    let rpc_handler = rpc::new_rpc_handler(peer_id, group.clone());
+    let rpc_handler = rpc::new_rpc_handler(peer_id, layer.clone());
 
     while let Ok(message) = recver.recv().await {
         match message {
-            ReceiveMessage::Group(fgid, g_msg) => {
-                if let Ok(results) = group.write().await.handle(fgid, g_msg) {
-                    handle(results, 0, &sender).await;
+            ReceiveMessage::Group(_fgid, _g_msg) => {
+                //
+            }
+            ReceiveMessage::Layer(fgid, tgid, l_msg) => {
+                if tgid == GROUP_CHAT_ID {
+                    if let Ok(results) = layer.write().await.handle(fgid, l_msg) {
+                        handle(results, 0, &sender).await;
+                    }
                 }
             }
             ReceiveMessage::Rpc(uid, params, _is_ws) => {
@@ -91,6 +98,7 @@ async fn handle(handle_result: HandleResult, uid: u64, sender: &Sender<SendMessa
     let HandleResult {
         mut rpcs,
         mut groups,
+        mut layers,
         mut networks,
     } = handle_result;
 
@@ -123,6 +131,18 @@ async fn handle(handle_result: HandleResult, uid: u64, sender: &Sender<SendMessa
             let (gid, msg) = groups.remove(0);
             sender
                 .send(SendMessage::Group(gid, msg))
+                .await
+                .expect("TDN channel closed");
+        } else {
+            break;
+        }
+    }
+
+    loop {
+        if layers.len() != 0 {
+            let (fgid, tgid, msg) = layers.remove(0);
+            sender
+                .send(SendMessage::Layer(fgid, tgid, msg))
                 .await
                 .expect("TDN channel closed");
         } else {
