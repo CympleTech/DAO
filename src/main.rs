@@ -3,6 +3,7 @@ extern crate log;
 
 mod group;
 mod layer;
+mod models;
 mod rpc;
 //mod storage;
 

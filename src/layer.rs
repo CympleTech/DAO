@@ -8,8 +8,10 @@ use tdn::types::{
 use tdn_did::Proof;
 
 use group_chat_types::{
-    Event, GroupConnect, GroupEvent, GroupInfo, GroupResult, GroupType, GROUP_CHAT_ID,
+    CheckType, Event, GroupConnect, GroupEvent, GroupInfo, GroupResult, GroupType, GROUP_CHAT_ID,
 };
+
+use crate::models::GroupChat;
 
 /// Group chat server to ESSE.
 #[inline]
@@ -31,42 +33,75 @@ impl Layer {
     }
 
     pub(crate) fn handle(&mut self, gid: GroupId, msg: RecvType) -> Result<HandleResult> {
-        println!("Group ID connect {:?}", gid.to_hex());
         let mut results = HandleResult::new();
 
         match msg {
             RecvType::Connect(addr, data) => {
-                println!("===== Connect ======= ");
                 let connect = postcard::from_bytes(&data)
                     .map_err(|_e| new_io_error("deserialize group chat connect failure"))?;
 
                 match connect {
                     GroupConnect::Check => {
-                        println!("===== Check Start ======= ");
                         let supported =
-                            vec![GroupType::Common, GroupType::Encrypted, GroupType::Open];
+                            vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
                         let res = if let Some(limit) = self.managers.get(&gid) {
                             if *limit > 0 {
-                                GroupResult::Check(true, supported)
+                                GroupResult::Check(CheckType::Allow, supported)
                             } else {
-                                GroupResult::Check(false, supported)
+                                GroupResult::Check(CheckType::None, supported)
                             }
                         } else {
-                            GroupResult::Check(false, supported)
+                            GroupResult::Check(CheckType::Deny, supported)
                         };
                         let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
                         let s = SendType::Result(0, addr, false, false, data);
                         add_layer(&mut results, gid, s);
-                        println!("===== Check Over ======= ");
                     }
-                    GroupConnect::Create(account, info, proof) => {
-                        if let Some(limit) = self.managers.get(&gid) {
+                    GroupConnect::Create(info, _proof) => {
+                        let supported =
+                            vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
+                        let (res, ok) = if let Some(limit) = self.managers.get(&gid) {
                             if *limit > 0 {
-                                // TODO return OK.
+                                // TODO check proof.
+                                let gcd = match info {
+                                    GroupInfo::Common(
+                                        owner,
+                                        gcd,
+                                        gt,
+                                        need_agree,
+                                        name,
+                                        bio,
+                                        _avatar,
+                                    ) => {
+                                        let _gc = GroupChat::new(
+                                            owner,
+                                            gcd,
+                                            gt,
+                                            name,
+                                            bio,
+                                            need_agree,
+                                            vec![],
+                                        );
+
+                                        // TODO save to db.
+
+                                        // TODO save avatar.
+
+                                        gcd
+                                    }
+                                    GroupInfo::Encrypted(gcd, ..) => gcd,
+                                };
+                                (GroupResult::Create(gcd, true), true)
                             } else {
-                                // TODO return Err.
+                                (GroupResult::Check(CheckType::None, supported), false)
                             }
-                        }
+                        } else {
+                            (GroupResult::Check(CheckType::Deny, supported), false)
+                        };
+
+                        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+                        let s = SendType::Result(0, addr, ok, false, data);
+                        add_layer(&mut results, gid, s);
                     }
                     GroupConnect::Join(gid, proof, remote_height) => {
                         // 1. check account is online, if not online, nothing.
