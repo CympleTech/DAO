@@ -93,8 +93,6 @@ pub(crate) struct Member {
     m_addr: PeerAddr,
     /// member's name.
     m_name: String,
-    /// member's remark.
-    m_remark: String,
     /// is group manager.
     is_manager: bool,
     /// member's joined time.
