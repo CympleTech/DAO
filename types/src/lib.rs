@@ -67,14 +67,14 @@ pub enum GroupConnect {
 /// Group chat join proof.
 #[derive(Serialize, Deserialize)]
 pub enum JoinProof {
-    /// when is had in group chat, can only use had to join.
-    /// params: account.
-    Had(GroupId),
+    /// when is joined in group chat, can only use had to join (connect).
+    /// params: proof.
+    Had(Proof),
     /// when is join by a link/qrcode, it has not proof. it will check group_type.
-    /// params: account.
+    /// params: link_by_account.
     Link(GroupId),
     /// when is invate, it will take group_manager's proof for invate.
-    /// params: account, invite_proof.
+    /// params: invite_by_account, invite_proof.
     Invite(GroupId, Proof),
     /// zero-knowledge-proof. not has account id.
     /// verify(proof, key_hash, current_peer_addr).
@@ -125,11 +125,20 @@ pub enum GroupResult {
     Reject(GroupId, GroupId),
 }
 
-/// Group chat event.
+/// ESSE app's layer Event.
 #[derive(Serialize, Deserialize)]
-pub enum GroupEvent {
-    Online(PeerAddr),
-    Offline(PeerAddr),
+pub(crate) enum LayerEvent {
+    /// receiver gid, sender gid. as BaseLayerEvent.
+    OnlinePing,
+    /// receiver gid, sender gid. as BaseLayerEvent.
+    OnlinePong,
+    /// receiver gid, sender gid. as BaseLayerEvent.
+    Offline,
+    /// online group member.
+    MemberOnline(PeerAddr),
+    /// offline group member.
+    MemberOffline(PeerAddr),
+    /// sync group message.
     Sync(u64, Event),
 }
 
