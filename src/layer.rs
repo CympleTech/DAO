@@ -1,14 +1,12 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tdn::types::{
     group::GroupId,
     message::{RecvType, SendType},
     primitive::{new_io_error, HandleResult, PeerAddr, Result},
 };
-use tdn_did::Proof;
 
 use group_chat_types::{
-    CheckType, Event, GroupConnect, GroupEvent, GroupInfo, GroupResult, GroupType, GROUP_CHAT_ID,
+    CheckType, Event, GroupConnect, GroupInfo, GroupResult, GroupType, LayerEvent, GROUP_CHAT_ID,
 };
 
 use crate::models::GroupChat;
@@ -21,7 +19,7 @@ pub fn add_layer(results: &mut HandleResult, gid: GroupId, msg: SendType) {
 
 pub(crate) struct Layer {
     managers: HashMap<GroupId, u32>,
-    groups: HashMap<GroupId, (Vec<PeerAddr>, u64)>,
+    groups: HashMap<GroupId, (Vec<(GroupId, PeerAddr)>, u64)>,
 }
 
 impl Layer {
@@ -87,6 +85,7 @@ impl Layer {
 
                                         // TODO save avatar.
 
+                                        self.create_group(gcd, gid, addr);
                                         gcd
                                     }
                                     GroupInfo::Encrypted(gcd, ..) => gcd,
@@ -103,31 +102,38 @@ impl Layer {
                         let s = SendType::Result(0, addr, ok, false, data);
                         add_layer(&mut results, gid, s);
                     }
-                    GroupConnect::Join(gid, proof, remote_height) => {
+                    GroupConnect::Join(gcd, join_proof) => {
+                        let height = 0; // TODO
+                        let res = GroupResult::Join(gcd, true, height);
+                        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+                        let s = SendType::Result(0, addr, true, false, data);
+                        add_layer(&mut results, gid, s);
+                        self.add_member(&gcd, gid, addr);
+
                         // 1. check account is online, if not online, nothing.
-                        if let Some((members, _height)) = self.groups.get_mut(&gid) {
-                            if members.contains(&addr) {
-                                // TODO return OK.
-                            } else {
-                                // TODO check proof.
+                        if let Some((_members, _height)) = self.groups.get_mut(&gcd) {
+                            //if members.contains(&addr) {
+                            // TODO return OK.
+                            // } else {
+                            // TODO check proof.
 
-                                // TODO boradcast online event.
+                            // TODO boradcast online event.
 
-                                // TODO sync events.
-                            }
+                            // TODO sync events.
+                            //}
                         }
                     }
                 }
             }
             RecvType::Leave(addr) => {
-                for (_g, (members, _)) in self.groups.iter_mut() {
-                    if let Some(pos) = members.iter().position(|x| x == &addr) {
-                        members.remove(pos);
-                        let data = postcard::to_allocvec(&GroupEvent::Offline(addr))
+                for (g, (members, _)) in self.groups.iter_mut() {
+                    if let Some(pos) = members.iter().position(|(_, x)| x == &addr) {
+                        let (mid, addr) = members.remove(pos);
+                        let data = postcard::to_allocvec(&LayerEvent::MemberOffline(*g, mid, addr))
                             .map_err(|_| new_io_error("serialize event error."))?;
-                        for member in members {
-                            let s = SendType::Event(0, *member, data.clone());
-                            add_layer(&mut results, gid, s);
+                        for (mid, maddr) in members {
+                            let s = SendType::Event(0, *maddr, data.clone());
+                            add_layer(&mut results, *mid, s);
                         }
                     }
                 }
@@ -139,16 +145,10 @@ impl Layer {
                 // no-reach here. here must be user's peer.
             }
             RecvType::Event(addr, bytes) => {
-                let event: GroupEvent = postcard::from_bytes(&bytes)
+                println!("Got Event");
+                let event: LayerEvent = postcard::from_bytes(&bytes)
                     .map_err(|_| new_io_error("deserialize event error."))?;
-
-                if let Some(true) = self
-                    .groups
-                    .get(&gid)
-                    .map(|(members, _)| members.contains(&addr))
-                {
-                    self.handle_event(&gid, event, &mut results)?;
-                }
+                self.handle_event(gid, addr, event, &mut results)?;
             }
             RecvType::Stream(_uid, _stream, _bytes) => {
                 // TODO stream
@@ -163,32 +163,70 @@ impl Layer {
 
     fn handle_event(
         &mut self,
-        gid: &GroupId,
-        gevent: GroupEvent,
+        fmid: GroupId,
+        addr: PeerAddr,
+        gevent: LayerEvent,
         results: &mut HandleResult,
     ) -> Result<()> {
-        let (members, height) = self.groups.get_mut(gid).ok_or(new_io_error("missing"))?;
+        let gcd = match gevent {
+            LayerEvent::Offline(gcd)
+            | LayerEvent::OnlinePing(gcd)
+            | LayerEvent::OnlinePong(gcd)
+            | LayerEvent::MemberOnline(gcd, ..)
+            | LayerEvent::MemberOffline(gcd, ..)
+            | LayerEvent::Sync(gcd, ..) => gcd,
+        };
+
+        println!("Check online.");
+        if !self.is_online_addr(&gcd, &addr) {
+            return Ok(());
+        }
+        println!("Check online ok.");
 
         match gevent {
-            GroupEvent::Online(addr) => {
-                let new_data = postcard::to_allocvec(&GroupEvent::Online(addr))
+            LayerEvent::Offline(gcd) => {
+                self.del_member(&gcd, &fmid);
+
+                let new_data = postcard::to_allocvec(&LayerEvent::MemberOffline(gcd, fmid, addr))
                     .map_err(|_| new_io_error("serialize event error."))?;
-                for member in members {
-                    let s = SendType::Event(0, *member, new_data.clone());
-                    add_layer(results, *gid, s);
+
+                for (mid, maddr) in self.groups(&gcd)? {
+                    let s = SendType::Event(0, *maddr, new_data.clone());
+                    add_layer(results, *mid, s);
                 }
             }
-            GroupEvent::Offline(addr) => {
-                let new_data = postcard::to_allocvec(&GroupEvent::Offline(addr))
+            LayerEvent::OnlinePing(gcd) => {
+                self.add_member(&gcd, fmid, addr);
+
+                let new_data = postcard::to_allocvec(&LayerEvent::OnlinePong(gcd))
                     .map_err(|_| new_io_error("serialize event error."))?;
-                for member in members {
-                    let s = SendType::Event(0, *member, new_data.clone());
-                    add_layer(results, *gid, s);
+                let s = SendType::Event(0, addr, new_data.clone());
+                add_layer(results, fmid, s);
+
+                let new_data = postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, fmid, addr))
+                    .map_err(|_| new_io_error("serialize event error."))?;
+                for (mid, maddr) in self.groups(&gcd)? {
+                    let s = SendType::Event(0, *maddr, new_data.clone());
+                    add_layer(results, *mid, s);
                 }
             }
-            GroupEvent::Sync(_, event) => {
-                match event {
-                    Event::Message => {
+
+            LayerEvent::OnlinePong(gcd) => {
+                self.add_member(&gcd, fmid, addr);
+
+                let new_data = postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, fmid, addr))
+                    .map_err(|_| new_io_error("serialize event error."))?;
+                for (mid, maddr) in self.groups(&gcd)? {
+                    let s = SendType::Event(0, *maddr, new_data.clone());
+                    add_layer(results, *mid, s);
+                }
+            }
+            LayerEvent::Sync(gcd, _, event) => {
+                println!("Start handle Event.");
+                let height = self.add_height(&gcd);
+
+                match &event {
+                    Event::Message(..) => {
                         //
                     }
                     Event::GroupUpdate => {
@@ -205,17 +243,26 @@ impl Layer {
                     }
                 }
 
-                let new_data = postcard::to_allocvec(&GroupEvent::Sync(*height + 1, event))
+                println!("Event broadcast");
+                let new_data = postcard::to_allocvec(&LayerEvent::Sync(gcd, height, event))
                     .map_err(|_| new_io_error("serialize event error."))?;
-                *height += 1;
-                for member in members {
-                    let s = SendType::Event(0, *member, new_data.clone());
-                    add_layer(results, *gid, s);
+                for (mid, maddr) in self.groups(&gcd)? {
+                    let s = SendType::Event(0, *maddr, new_data.clone());
+                    add_layer(results, *mid, s);
                 }
             }
+            LayerEvent::MemberOnline(..) => {}  // Nerver here.
+            LayerEvent::MemberOffline(..) => {} // Never here.
         }
 
         Ok(())
+    }
+
+    fn groups(&self, gid: &GroupId) -> Result<&Vec<(GroupId, PeerAddr)>> {
+        self.groups
+            .get(gid)
+            .map(|v| &v.0)
+            .ok_or(new_io_error("Group missing"))
     }
 
     pub fn add_manager(&mut self, gid: GroupId, limit: u32) {
@@ -224,5 +271,50 @@ impl Layer {
 
     pub fn remove_manager(&mut self, gid: &GroupId) {
         self.managers.remove(gid);
+    }
+
+    pub fn create_group(&mut self, gid: GroupId, rid: GroupId, raddr: PeerAddr) {
+        self.groups.insert(gid, (vec![(rid, raddr)], 0));
+    }
+
+    pub fn add_height(&mut self, gid: &GroupId) -> u64 {
+        if let Some((_, height)) = self.groups.get_mut(gid) {
+            *height += 1;
+            *height
+        } else {
+            0
+        }
+    }
+
+    pub fn add_member(&mut self, gid: &GroupId, rid: GroupId, raddr: PeerAddr) {
+        if let Some((members, _)) = self.groups.get_mut(gid) {
+            for (mid, maddr) in members.iter_mut() {
+                if *mid == rid {
+                    *maddr = raddr;
+                    return;
+                }
+            }
+            members.push((rid, raddr));
+        }
+    }
+
+    pub fn del_member(&mut self, gid: &GroupId, rid: &GroupId) {
+        if let Some((members, _)) = self.groups.get_mut(gid) {
+            if let Some(pos) = members.iter().position(|(mid, _)| mid == rid) {
+                members.remove(pos);
+            }
+        }
+    }
+
+    pub fn is_online_addr(&self, gid: &GroupId, addr: &PeerAddr) -> bool {
+        if let Some((members, _)) = self.groups.get(gid) {
+            println!("{:?}", members);
+            for (_, maddr) in members {
+                if maddr == addr {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

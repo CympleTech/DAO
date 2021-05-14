@@ -1,18 +1,15 @@
 use async_lock::RwLock;
-use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
-use tdn::{
-    smol::channel::{SendError, Sender},
-    types::{
-        group::GroupId,
-        message::{NetworkType, SendMessage, SendType, StateRequest, StateResponse},
-        primitive::{new_io_error, HandleResult, PeerAddr, Result},
-        rpc::{json, rpc_response, RpcError, RpcHandler, RpcParam},
-    },
+use tdn::types::{
+    group::GroupId,
+    message::NetworkType,
+    primitive::{HandleResult, PeerAddr},
+    rpc::{json, RpcHandler, RpcParam},
 };
 
 use crate::layer::Layer;
+use crate::models::Manager;
+use crate::storage;
 
 pub(crate) struct RpcState {
     pub group: Arc<RwLock<Layer>>,
@@ -32,6 +29,10 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, group: Arc<RwLock<Layer>>) -> RpcH
             let gid = GroupId::from_hex(params[0].as_str()?)?;
 
             let mut results = HandleResult::rpc(json!(params));
+
+            let mut manager = Manager::new(gid);
+            let db = storage::INSTANCE.get().unwrap();
+            manager.insert(&db.pool).await?;
 
             state.group.write().await.add_manager(gid, 5);
             results.networks.push(NetworkType::AddGroup(gid));

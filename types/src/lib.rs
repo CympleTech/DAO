@@ -60,8 +60,8 @@ pub enum GroupConnect {
     /// params: group_info, proof.
     Create(GroupInfo, Proof),
     /// join a Group Chat.
-    /// params: Group_ID, join_proof, group_event_height.
-    Join(GroupId, JoinProof, u64),
+    /// params: Group_ID, join_proof.
+    Join(GroupId, JoinProof),
 }
 
 /// Group chat join proof.
@@ -109,44 +109,59 @@ pub enum GroupResult {
     /// params: account, is_ok, supported_group_types.
     Check(CheckType, Vec<GroupType>),
     /// result create group success.
-    /// params: account, Group_ID
+    /// params: Group_ID, is_ok.
     Create(GroupId, bool),
     /// connect result.
-    /// params: GroupId, account, is_ok.
-    Join(GroupId, GroupId, bool),
+    /// params: GroupId, is_ok, group_event_height.
+    Join(GroupId, bool, u64),
     /// join result, need group manager agree.
-    /// params: GroupId, account.
-    Waiting(GroupId, GroupId),
+    /// params: GroupId.
+    Waiting(GroupId),
     /// join result. agree to join.
-    /// params: GroupId, account.
-    Agree(GroupId, GroupId, GroupInfo),
+    /// params: GroupId, Group info, group_event_height.
+    Agree(GroupId, GroupInfo, u64),
     /// join result. reject to join.
-    /// params: GroupId, account.
-    Reject(GroupId, GroupId),
+    /// params: GroupId.
+    Reject(GroupId),
 }
 
 /// ESSE app's layer Event.
 #[derive(Serialize, Deserialize)]
-pub(crate) enum LayerEvent {
-    /// receiver gid, sender gid. as BaseLayerEvent.
-    OnlinePing,
-    /// receiver gid, sender gid. as BaseLayerEvent.
-    OnlinePong,
-    /// receiver gid, sender gid. as BaseLayerEvent.
-    Offline,
-    /// online group member.
-    MemberOnline(PeerAddr),
-    /// offline group member.
-    MemberOffline(PeerAddr),
-    /// sync group message.
-    Sync(u64, Event),
+pub enum LayerEvent {
+    /// offline GroupId. as BaseLayerEvent.
+    Offline(GroupId),
+    /// online ping GroupId.
+    OnlinePing(GroupId),
+    /// online pong GroupId
+    OnlinePong(GroupId),
+    /// online group member. GroupId, member, address.
+    MemberOnline(GroupId, GroupId, PeerAddr),
+    /// offline group member. GroupId, member, address.
+    MemberOffline(GroupId, GroupId, PeerAddr),
+    /// sync group message. GroupId, height, event.
+    Sync(GroupId, u64, Event),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum Event {
-    Message,
+    /// group chat message: member, message.
+    Message(GroupId, NetworkMessage),
     GroupUpdate,
     GroupTransfer,
     UserInfo,
     Close,
+}
+
+/// message type use in network.
+#[derive(Serialize, Deserialize, Clone)]
+pub enum NetworkMessage {
+    String(String),                              // content
+    Image(Vec<u8>),                              // image bytes.
+    File(String, Vec<u8>),                       // filename, file bytes.
+    Contact(String, GroupId, PeerAddr, Vec<u8>), // name, gid, addr, avatar bytes.
+    Record(Vec<u8>, u32),                        // record audio bytes.
+    Emoji,
+    Phone,
+    Video,
+    None,
 }

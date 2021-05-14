@@ -1,7 +1,10 @@
 use group_chat_types::{GroupInfo, GroupType};
-use rand::Rng;
+use sqlx::postgres::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tdn::types::{group::GroupId, primitive::PeerAddr};
+use tdn::types::{
+    group::GroupId,
+    primitive::{new_io_error, PeerAddr, Result},
+};
 
 /// Group Chat Model.
 pub(crate) struct GroupChat {
@@ -87,8 +90,8 @@ pub(crate) struct Member {
     id: i64,
     /// group's db id.
     fid: i64,
-    /// member's Did(decode GroupId)
-    m_id: String,
+    /// member's Did(encrypted/not-encrytped)
+    m_id: GroupId,
     /// member's addresse.
     m_addr: PeerAddr,
     /// member's name.
@@ -119,12 +122,54 @@ pub(crate) struct Message {
     fid: i64,
     /// member's db id.
     m_id: i64,
-    /// group message consensus height.
-    height: i64,
     /// message type.
     m_type: MessageType,
     /// message content.
     m_content: String,
     /// message created time.
     datetime: i64,
+}
+
+/// Group Chat Message Model.
+pub(crate) struct Manager {
+    /// db auto-increment id.
+    id: i64,
+    /// manager's gid.
+    gid: GroupId,
+    /// limit group times.
+    times: i32,
+    /// manager is suspend.
+    is_closed: bool,
+    /// manager created time.
+    datetime: i64,
+}
+
+impl Manager {
+    pub fn new(gid: GroupId) -> Self {
+        let start = SystemTime::now();
+        let datetime = start
+            .duration_since(UNIX_EPOCH)
+            .map(|s| s.as_secs())
+            .unwrap_or(0) as i64; // safe for all life.
+
+        Self {
+            gid,
+            datetime,
+            times: 10,
+            is_closed: false,
+            id: 0,
+        }
+    }
+    pub async fn insert(&mut self, pool: &PgPool) -> Result<()> {
+        let rec = sqlx::query!(
+            "INSERT INTO managers ( gid, times, is_closed, datetime ) VALUES ( $1, $2, $3, $4 ) RETURNING id",
+            self.gid.to_hex(),
+            self.times,
+            self.is_closed,
+            self.datetime
+        ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
+
+        self.id = rec.id;
+        Ok(())
+    }
 }
