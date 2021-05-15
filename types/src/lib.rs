@@ -43,12 +43,30 @@ impl GroupType {
 /// GroupInfo transfer in the network.
 #[derive(Serialize, Deserialize)]
 pub enum GroupInfo {
-    /// params: Owner, Group_ID, group_type, is_must_agree_by_manager,
+    /// params: owner, owner_name, Group_ID, group_type, is_must_agree_by_manager,
     /// group_name, group_bio, group_avatar.
-    Common(GroupId, GroupId, GroupType, bool, String, String, Vec<u8>),
-    /// params: Owner, Group_ID, is_must_agree_by_manager, key_hash,
+    Common(
+        GroupId,
+        String,
+        GroupId,
+        GroupType,
+        bool,
+        String,
+        String,
+        Vec<u8>,
+    ),
+    /// params: owner, owner_name, Group_ID, is_must_agree_by_manager, key_hash,
     /// group_name(bytes), group_bio(bytes), group_avatar(bytes).
-    Encrypted(GroupId, GroupId, bool, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>),
+    Encrypted(
+        GroupId,
+        String,
+        GroupId,
+        bool,
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+    ),
 }
 
 /// Group chat connect data.

@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS messages
 (
   id            BIGSERIAL PRIMARY KEY,
   fid           BIGINT NOT NULL,
+  height        BIGINT NOT NULL,
   mid           BIGINT NOT NULL,
   m_name        CHAR(255) NOT NULL,
   m_type        SMALLINT NOT NULL,

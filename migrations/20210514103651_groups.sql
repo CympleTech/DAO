@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS groups
 (
   id            BIGSERIAL PRIMARY KEY,
   owner         CHAR(64) NOT NULL,
+  height        BIGINT NOT NULL,
   g_id          CHAR(64) NOT NULL,
   g_type        SMALLINT NOT NULL,
   g_name        VARCHAR(255) NOT NULL,

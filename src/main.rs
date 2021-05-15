@@ -75,7 +75,7 @@ pub async fn start(db_path: String) -> Result<()> {
     let (peer_id, sender, recver) = start_with_config(config).await.unwrap();
     info!("Network Peer id : {}", peer_id.to_hex());
 
-    let layer = Arc::new(RwLock::new(layer::Layer::new()));
+    let layer = Arc::new(RwLock::new(layer::Layer::new().await?));
 
     let rpc_handler = rpc::new_rpc_handler(peer_id, layer.clone());
 
@@ -86,7 +86,7 @@ pub async fn start(db_path: String) -> Result<()> {
             }
             ReceiveMessage::Layer(fgid, tgid, l_msg) => {
                 if tgid == GROUP_CHAT_ID {
-                    if let Ok(results) = layer.write().await.handle(fgid, l_msg) {
+                    if let Ok(results) = layer.write().await.handle(fgid, l_msg).await {
                         handle(results, 0, &sender).await;
                     }
                 }
