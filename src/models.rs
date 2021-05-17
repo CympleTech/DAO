@@ -1,4 +1,4 @@
-use group_chat_types::{GroupInfo, GroupType};
+use group_chat_types::{GroupInfo, GroupType, NetworkMessage};
 use sqlx::postgres::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tdn::types::{
@@ -17,13 +17,13 @@ pub(crate) struct GroupChat {
     /// group chat id.
     pub g_id: GroupId,
     /// group chat type.
-    g_type: GroupType,
+    pub g_type: GroupType,
     /// group chat name.
     g_name: String,
     /// group chat simple intro.
     g_bio: String,
     /// group chat need manager agree.
-    is_need_agree: bool,
+    pub is_need_agree: bool,
     /// group chat encrypted-key's hash.
     key_hash: Vec<u8>,
     /// group chat is closed.
@@ -89,6 +89,10 @@ impl GroupChat {
         }
     }
 
+    pub async fn get_id(pool: &PgPool, id: &i64) -> Result<Option<GroupChat>> {
+        todo!()
+    }
+
     pub async fn all(pool: &PgPool) -> Result<Vec<GroupChat>> {
         let recs = sqlx::query!(
             "SELECT id, owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime FROM groups WHERE is_deleted = false ORDER BY id",
@@ -139,19 +143,19 @@ impl GroupChat {
 /// Group Member Model.
 pub(crate) struct Member {
     /// db auto-increment id.
-    id: i64,
+    pub id: i64,
     /// group's db id.
     fid: i64,
     /// member's Did(encrypted/not-encrytped)
-    m_id: GroupId,
+    pub m_id: GroupId,
     /// member's addresse.
-    m_addr: PeerAddr,
+    pub m_addr: PeerAddr,
     /// member's name.
-    m_name: String,
+    pub m_name: String,
     /// is group manager.
     is_manager: bool,
     /// member's joined time.
-    datetime: i64,
+    pub datetime: i64,
 }
 
 impl Member {
@@ -211,6 +215,24 @@ impl Member {
         }
         Ok(false)
     }
+
+    pub async fn is_manager(pool: &PgPool, fid: &i64, mid: &GroupId) -> Result<bool> {
+        let recs = sqlx::query!(
+            "SELECT is_deleted, is_manager FROM members WHERE fid = $1 and m_id = $2",
+            fid,
+            mid.to_hex()
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
+
+        for res in recs {
+            if !res.is_deleted && res.is_manager {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 /// Group Chat message type.
@@ -231,8 +253,6 @@ pub(crate) struct Message {
     id: i64,
     /// group's db id.
     fid: i64,
-    /// group chat height.
-    height: i64,
     /// member's db id.
     m_id: i64,
     /// message type.
@@ -241,6 +261,60 @@ pub(crate) struct Message {
     m_content: String,
     /// message created time.
     datetime: i64,
+}
+
+impl Message {
+    pub async fn handle_network_message(
+        gcd: &GroupId,
+        fid: &i64,
+        mid: &GroupId,
+        msg: &NetworkMessage,
+    ) -> Result<i64> {
+        // handle event.
+        let (m_type, raw) = match msg {
+            NetworkMessage::String(content) => (MessageType::String, content.to_owned()),
+            NetworkMessage::Image(bytes) => {
+                //let image_name = write_image_sync(&base, &mgid, bytes)?;
+                let image_name = "".to_owned();
+                (MessageType::Image, image_name)
+            }
+            NetworkMessage::File(old_name, bytes) => {
+                //let filename = write_file_sync(&base, &mgid, &old_name, bytes)?;
+                let filename = "".to_owned();
+                (MessageType::File, filename)
+            }
+            NetworkMessage::Contact(name, rgid, addr, avatar_bytes) => {
+                //write_avatar_sync(&base, &mgid, &rgid, avatar_bytes)?;
+                let tmp_name = name.replace(";", "-;");
+                let contact_values = format!("{};;{};;{}", tmp_name, rgid.to_hex(), addr.to_hex());
+                (MessageType::Contact, contact_values)
+            }
+            NetworkMessage::Emoji => {
+                // TODO
+                (MessageType::Emoji, "".to_owned())
+            }
+            NetworkMessage::Record(bytes, time) => {
+                //let record_name = write_record_sync(&base, &mgid, gdid, time, bytes)?;
+                let record_name = "".to_owned();
+                (MessageType::Record, record_name)
+            }
+            NetworkMessage::Phone => {
+                // TODO
+                (MessageType::Phone, "".to_owned())
+            }
+            NetworkMessage::Video => {
+                // TODO
+                (MessageType::Video, "".to_owned())
+            }
+            NetworkMessage::None => (MessageType::String, "".to_owned()),
+        };
+
+        //let mut msg = Message::new(height, gdid, mdid, is_me, m_type, raw);
+        //msg.insert(&db)?;
+        //GroupChat::update_last_message(&db, gdid, &msg, false)?;
+        //Ok(msg)
+        Ok(0)
+    }
 }
 
 /// Group Chat Message Model.
@@ -305,6 +379,110 @@ impl Manager {
         ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
 
         self.id = rec.id;
+        Ok(())
+    }
+}
+
+pub(crate) enum ConsensusType {
+    GroupInfo,
+    GroupTransfer,
+    GroupManagerAdd,
+    GroupManagerDel,
+    GroupClose,
+    MemberInfo,
+    MemberJoin,
+    MemberLeave,
+    MessageCreate,
+    None,
+}
+
+impl ConsensusType {
+    fn to_i16(&self) -> i16 {
+        match self {
+            ConsensusType::None => 0,
+            ConsensusType::GroupInfo => 1,
+            ConsensusType::GroupTransfer => 2,
+            ConsensusType::GroupManagerAdd => 3,
+            ConsensusType::GroupManagerDel => 4,
+            ConsensusType::GroupClose => 5,
+            ConsensusType::MemberInfo => 6,
+            ConsensusType::MemberJoin => 7,
+            ConsensusType::MemberLeave => 8,
+            ConsensusType::MessageCreate => 9,
+        }
+    }
+
+    fn from_i16(a: i16) -> Self {
+        match a {
+            1 => ConsensusType::GroupInfo,
+            2 => ConsensusType::GroupTransfer,
+            3 => ConsensusType::GroupManagerAdd,
+            4 => ConsensusType::GroupManagerDel,
+            5 => ConsensusType::GroupClose,
+            6 => ConsensusType::MemberInfo,
+            7 => ConsensusType::MemberJoin,
+            8 => ConsensusType::MemberLeave,
+            9 => ConsensusType::MessageCreate,
+            _ => ConsensusType::None,
+        }
+    }
+}
+
+/// Group Chat Consensus.
+pub(crate) struct Consensus {
+    /// db auto-increment id.
+    id: i64,
+    /// group's db id.
+    fid: i64,
+    /// group's height.
+    height: i64,
+    /// consensus type.
+    ctype: ConsensusType,
+    /// consensus point value db id.
+    cid: i64,
+}
+
+impl Consensus {
+    pub async fn list(pool: &PgPool, fid: &i64, from: &i64, to: &i64) -> Result<Vec<Consensus>> {
+        let recs =
+            sqlx::query!("SELECT id, fid, height, ctype, cid FROM consensus WHERE fid = $1 AND height BETWEEN $2 AND $3", fid, from, to)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| new_io_error("database failure."))?;
+
+        let mut consensus = vec![];
+
+        for res in recs {
+            consensus.push(Self {
+                id: res.id,
+                fid: res.fid,
+                height: res.height,
+                ctype: ConsensusType::from_i16(res.ctype),
+                cid: res.cid,
+            });
+        }
+
+        Ok(consensus)
+    }
+
+    pub async fn insert(
+        pool: &PgPool,
+        fid: &i64,
+        height: &i64,
+        cid: &i64,
+        ctype: &ConsensusType,
+    ) -> Result<()> {
+        let rec = sqlx::query!(
+            "INSERT INTO consensus ( fid, height, ctype, cid ) VALUES ( $1, $2, $3, $4 )",
+            fid,
+            height,
+            ctype.to_i16(),
+            cid
+        )
+        .execute(pool)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
+
         Ok(())
     }
 }

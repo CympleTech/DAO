@@ -10,7 +10,7 @@ pub const GROUP_CHAT_ID: GroupId = GroupId([
     0, 0, 0, 0, 0, 0, 0, 2,
 ]);
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum GroupType {
     /// encrypted group type, data is encrypted, and it can need manager
     /// or take manager's zero-knowledge-proof.
@@ -88,12 +88,15 @@ pub enum JoinProof {
     /// when is joined in group chat, can only use had to join (connect).
     /// params: proof.
     Had(Proof),
+    /// when join the open group chat.
+    /// params: member name, member avatar.
+    Open(String, Vec<u8>),
     /// when is join by a link/qrcode, it has not proof. it will check group_type.
-    /// params: link_by_account.
-    Link(GroupId),
+    /// params: link_by_account, member name, member avatar.
+    Link(GroupId, String, Vec<u8>),
     /// when is invate, it will take group_manager's proof for invate.
-    /// params: invite_by_account, invite_proof.
-    Invite(GroupId, Proof),
+    /// params: invite_by_account, invite_proof, member name, member avatar.
+    Invite(GroupId, Proof, String, Vec<u8>),
     /// zero-knowledge-proof. not has account id.
     /// verify(proof, key_hash, current_peer_addr).
     Zkp(Proof), // TODO MOCK-PROOF
@@ -106,6 +109,8 @@ pub enum CheckType {
     Allow,
     /// cannot created, used all times.
     None,
+    /// account is suspended.
+    Suspend,
     /// cannot created, no permission.
     Deny,
 }
@@ -115,7 +120,8 @@ impl CheckType {
         match self {
             CheckType::Allow => 0,
             CheckType::None => 1,
-            CheckType::Deny => 2,
+            CheckType::Suspend => 2,
+            CheckType::Deny => 3,
         }
     }
 }
@@ -131,13 +137,13 @@ pub enum GroupResult {
     Create(GroupId, bool),
     /// connect result.
     /// params: GroupId, is_ok, group_event_height.
-    Join(GroupId, bool, u64),
+    Join(GroupId, bool, i64),
     /// join result, need group manager agree.
     /// params: GroupId.
     Waiting(GroupId),
     /// join result. agree to join.
     /// params: GroupId, Group info, group_event_height.
-    Agree(GroupId, GroupInfo, u64),
+    Agree(GroupId, GroupInfo, i64),
     /// join result. reject to join.
     /// params: GroupId.
     Reject(GroupId),
@@ -157,17 +163,20 @@ pub enum LayerEvent {
     /// offline group member. GroupId, member, address.
     MemberOffline(GroupId, GroupId, PeerAddr),
     /// sync group message. GroupId, height, event.
-    Sync(GroupId, u64, Event),
+    Sync(GroupId, i64, Event),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum Event {
-    /// group chat message: member, message.
-    Message(GroupId, NetworkMessage),
-    GroupUpdate,
+    GroupInfo,
     GroupTransfer,
-    UserInfo,
-    Close,
+    GroupManagerAdd,
+    GroupManagerDel,
+    GroupClose,
+    MemberInfo(GroupId, PeerAddr, String, Vec<u8>),
+    MemberJoin(GroupId, PeerAddr, String, Vec<u8>, i64),
+    MemberLeave(GroupId),
+    MessageCreate(GroupId, NetworkMessage, i64),
 }
 
 /// message type use in network.
