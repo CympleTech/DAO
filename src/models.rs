@@ -63,11 +63,11 @@ impl GroupChat {
         }
     }
 
-    pub fn to_group_info(self, name: String, avatar: Vec<u8>) -> GroupInfo {
+    pub fn to_group_info(self, avatar: Vec<u8>) -> GroupInfo {
         match self.g_type {
             GroupType::Common | GroupType::Open => GroupInfo::Common(
                 self.owner,
-                name,
+                "".to_owned(), // no-need.
                 self.g_id,
                 self.g_type,
                 self.is_need_agree,
@@ -78,7 +78,7 @@ impl GroupChat {
             GroupType::Encrypted => GroupInfo::Common(
                 // TODO decode.
                 self.owner,
-                name,
+                "".to_owned(), // no-need.
                 self.g_id,
                 self.g_type,
                 self.is_need_agree,
@@ -89,8 +89,25 @@ impl GroupChat {
         }
     }
 
-    pub async fn get_id(pool: &PgPool, id: &i64) -> Result<Option<GroupChat>> {
-        todo!()
+    pub async fn get_id(pool: &PgPool, id: &i64) -> Result<GroupChat> {
+        let res = sqlx::query!(
+            "SELECT id, owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime FROM groups WHERE is_deleted = false and id = $1",
+            id
+        ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
+
+        Ok(Self {
+            id: res.id,
+            owner: GroupId::from_hex(res.owner).unwrap_or(GroupId::default()),
+            height: res.height,
+            g_id: GroupId::from_hex(res.g_id).unwrap_or(GroupId::default()),
+            g_type: GroupType::from_u32(res.g_type as u32),
+            g_name: res.g_name,
+            g_bio: res.g_bio,
+            is_need_agree: res.is_need_agree,
+            key_hash: hex::decode(res.key_hash).unwrap_or(vec![]),
+            is_closed: res.is_closed,
+            datetime: res.datetime,
+        })
     }
 
     pub async fn all(pool: &PgPool) -> Result<Vec<GroupChat>> {

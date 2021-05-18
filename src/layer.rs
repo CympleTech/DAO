@@ -128,93 +128,29 @@ impl Layer {
                     }
                     GroupConnect::Join(gcd, join_proof) => {
                         // 1. check account is online, if not online, nothing.
-                        if let Some((_members, height, fid)) = self.groups.get_mut(&gcd) {
-                            match join_proof {
-                                JoinProof::Had(proof) => {
-                                    // check is member.
-                                    let db = storage::INSTANCE.get().unwrap();
-                                    if Member::exist(&db.pool, fid, &gid).await? {
-                                        let res = GroupResult::Join(gcd, true, *height);
-                                        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
-                                        let s = SendType::Result(0, addr, true, false, data);
-                                        add_layer(&mut results, gid, s);
-                                        self.add_member(&gcd, gid, addr);
-                                    } else {
-                                        let s = SendType::Result(0, addr, false, false, vec![]);
-                                        add_layer(&mut results, gid, s);
-                                    }
-                                }
-                                JoinProof::Open(mname, mavatar) => {
-                                    let db = storage::INSTANCE.get().unwrap();
-                                    if let Some(group) = GroupChat::get_id(&db.pool, fid).await? {
-                                        if group.g_type == GroupType::Open {
-                                            let mut m = Member::new(*fid, gid, addr, mname, false);
-                                            m.insert(&db.pool).await?;
-
-                                            // TOOD save avatar.
-
-                                            self.broadcast_join(
-                                                &gid,
-                                                &db.pool,
-                                                m,
-                                                mavatar,
-                                                &mut results,
-                                            )
-                                            .await?;
-                                            self.add_member(&gcd, gid, addr);
-                                            return Ok(results);
-                                        }
-                                    }
-
-                                    // TODO add join result invite url lose efficacy.
+                        match join_proof {
+                            JoinProof::Had(proof) => {
+                                let (height, fid) = self.height_and_fid(&gcd)?;
+                                // check is member.
+                                let db = storage::INSTANCE.get().unwrap();
+                                if Member::exist(&db.pool, &fid, &gid).await? {
+                                    Self::had_join(height, gcd, gid, addr, &mut results);
+                                } else {
                                     let s = SendType::Result(0, addr, false, false, vec![]);
                                     add_layer(&mut results, gid, s);
                                 }
-                                JoinProof::Link(link_gid, mname, mavatar) => {
-                                    let db = storage::INSTANCE.get().unwrap();
-                                    if !Member::exist(&db.pool, fid, &link_gid).await? {
-                                        // TODO add join result invite url lose efficacy.
-                                        let s = SendType::Result(0, addr, false, false, vec![]);
-                                        add_layer(&mut results, gid, s);
-                                        return Ok(results);
-                                    }
-
-                                    if let Some(group) = GroupChat::get_id(&db.pool, fid).await? {
-                                        if group.is_need_agree {
-                                            // TODO add member request.
-                                        } else {
-                                            let mut m = Member::new(*fid, gid, addr, mname, false);
-                                            m.insert(&db.pool).await?;
-
-                                            // TOOD save avatar.
-
-                                            self.broadcast_join(
-                                                &gid,
-                                                &db.pool,
-                                                m,
-                                                mavatar,
-                                                &mut results,
-                                            )
-                                            .await?;
-                                            self.add_member(&gcd, gid, addr);
-                                        }
-                                    } else {
-                                        // TODO add join result invite url lose efficacy.
-                                        let s = SendType::Result(0, addr, false, false, vec![]);
-                                        add_layer(&mut results, gid, s);
-                                    }
+                            }
+                            JoinProof::Open(mname, mavatar) => {
+                                let fid = self.fid(&gcd)?;
+                                let db = storage::INSTANCE.get().unwrap();
+                                let group = GroupChat::get_id(&db.pool, &fid).await?;
+                                // check is member.
+                                if Member::exist(&db.pool, fid, &gid).await? {
+                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
+                                    return Ok(results);
                                 }
-                                JoinProof::Invite(invite_gid, _proof, mname, mavatar) => {
-                                    let db = storage::INSTANCE.get().unwrap();
-                                    if !Member::is_manager(&db.pool, fid, &invite_gid).await? {
-                                        // TODO add join result invite url lose efficacy.
-                                        let s = SendType::Result(0, addr, false, false, vec![]);
-                                        add_layer(&mut results, gid, s);
-                                        return Ok(results);
-                                    }
 
-                                    // TODO check proof.
-
+                                if group.g_type == GroupType::Open {
                                     let mut m = Member::new(*fid, gid, addr, mname, false);
                                     m.insert(&db.pool).await?;
 
@@ -223,10 +159,80 @@ impl Layer {
                                     self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
                                         .await?;
                                     self.add_member(&gcd, gid, addr);
+
+                                    // return join result.
+                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
+                                    return Ok(results);
+                                } else {
+                                    // TODO add member request.
                                 }
-                                JoinProof::Zkp(_proof) => {
-                                    // TOOD zkp join.
+                            }
+                            JoinProof::Link(link_gid, mname, mavatar) => {
+                                let fid = self.fid(&gcd)?;
+                                let db = storage::INSTANCE.get().unwrap();
+                                let group = GroupChat::get_id(&db.pool, &fid).await?;
+                                // check is member.
+                                if Member::exist(&db.pool, fid, &gid).await? {
+                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
+                                    return Ok(results);
                                 }
+
+                                if !Member::exist(&db.pool, fid, &link_gid).await? {
+                                    // TODO add join result invite url lose efficacy.
+                                    let s = SendType::Result(0, addr, false, false, vec![]);
+                                    add_layer(&mut results, gid, s);
+                                    return Ok(results);
+                                }
+
+                                if group.is_need_agree {
+                                    // TODO add member request.
+                                } else {
+                                    let mut m = Member::new(*fid, gid, addr, mname, false);
+                                    m.insert(&db.pool).await?;
+
+                                    // TOOD save avatar.
+
+                                    self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
+                                        .await?;
+                                    self.add_member(&gcd, gid, addr);
+
+                                    // return join result.
+                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
+                                }
+                            }
+                            JoinProof::Invite(invite_gid, _proof, mname, mavatar) => {
+                                let fid = self.fid(&gcd)?;
+                                let db = storage::INSTANCE.get().unwrap();
+                                let group = GroupChat::get_id(&db.pool, fid).await?;
+                                // check is member.
+                                if Member::exist(&db.pool, fid, &gid).await? {
+                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
+                                    return Ok(results);
+                                }
+
+                                if !Member::is_manager(&db.pool, fid, &invite_gid).await? {
+                                    // TODO add join result invite url lose efficacy.
+                                    let s = SendType::Result(0, addr, false, false, vec![]);
+                                    add_layer(&mut results, gid, s);
+                                    return Ok(results);
+                                }
+
+                                // TODO check proof.
+
+                                let mut m = Member::new(*fid, gid, addr, mname, false);
+                                m.insert(&db.pool).await?;
+
+                                // TOOD save avatar.
+
+                                self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
+                                    .await?;
+                                self.add_member(&gcd, gid, addr);
+
+                                // return join result.
+                                self.agree_join(gcd, gid, addr, group, &mut results).await?;
+                            }
+                            JoinProof::Zkp(_proof) => {
+                                // TOOD zkp join.
                             }
                         }
                     }
@@ -386,6 +392,20 @@ impl Layer {
             .ok_or(new_io_error("Group missing"))
     }
 
+    fn height(&self, gid: &GroupId) -> Result<i64> {
+        self.groups
+            .get(gid)
+            .map(|v| v.1)
+            .ok_or(new_io_error("Group missing"))
+    }
+
+    fn height_and_fid(&self, gid: &GroupId) -> Result<(i64, i64)> {
+        self.groups
+            .get(gid)
+            .map(|v| (v.1, v.2))
+            .ok_or(new_io_error("Group missing"))
+    }
+
     fn groups(&self, gid: &GroupId) -> Result<&Vec<(GroupId, PeerAddr)>> {
         self.groups
             .get(gid)
@@ -486,6 +506,37 @@ impl Layer {
             }
         }
 
+        Ok(())
+    }
+
+    fn had_join(
+        height: i64,
+        gcd: GroupId,
+        gid: GroupId,
+        addr: PeerAddr,
+        results: &mut HandleResult,
+    ) {
+        let res = GroupResult::Join(gcd, true, height);
+        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+        let s = SendType::Result(0, addr, true, false, data);
+        add_layer(&mut results, gid, s);
+    }
+
+    async fn agree_join(
+        &self,
+        gcd: GroupId,
+        gid: GroupId,
+        addr: PeerAddr,
+        group: GroupChat,
+        results: &mut HandleResult,
+    ) -> Result<()> {
+        let height = self.height(&gcd)?;
+        let gavatar = vec![]; // TOOD load group avatar.
+        let group_info = group.to_group_info(gavatar);
+        let res = GroupResult::Agree(gcd, group_info, height);
+        let d = postcard::to_allocvec(&res).unwrap_or(vec![]);
+        let s = SendType::Result(0, addr, true, false, d);
+        add_layer(results, gid, s);
         Ok(())
     }
 }
