@@ -1,10 +1,13 @@
-use group_chat_types::{GroupInfo, GroupType, NetworkMessage};
 use sqlx::postgres::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tdn::types::{
     group::GroupId,
     primitive::{new_io_error, PeerAddr, Result},
 };
+
+use group_chat_types::{GroupInfo, GroupType, NetworkMessage, PackedEvent};
+
+use crate::storage::get_pool;
 
 /// Group Chat Model.
 pub(crate) struct GroupChat {
@@ -155,6 +158,15 @@ impl GroupChat {
         self.id = rec.id;
         Ok(())
     }
+
+    pub async fn add_height(id: &i64, height: &i64) -> Result<()> {
+        let _ = sqlx::query!("UPDATE groups SET height = $1 WHERE id = $2", height, id)
+            .execute(get_pool()?)
+            .await
+            .map_err(|_| new_io_error("database failure."))?;
+
+        Ok(())
+    }
 }
 
 /// Group Member Model.
@@ -233,6 +245,47 @@ impl Member {
         Ok(false)
     }
 
+    pub async fn get_id(id: &i64) -> Result<Member> {
+        let rec = sqlx::query!(
+            "SELECT id, fid, m_id, m_addr, m_name, is_manager, datetime FROM members WHERE id = $1",
+            id,
+        )
+        .fetch_one(get_pool()?)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
+
+        Ok(Member {
+            id: rec.id,
+            fid: rec.fid,
+            m_id: GroupId::from_hex(rec.m_id).unwrap_or(GroupId::default()),
+            m_addr: PeerAddr::from_hex(rec.m_addr).unwrap_or(PeerAddr::default()),
+            m_name: rec.m_name,
+            is_manager: rec.is_manager,
+            datetime: rec.datetime,
+        })
+    }
+
+    pub async fn get(fid: &i64, gid: &GroupId) -> Result<Member> {
+        let rec = sqlx::query!(
+            "SELECT id, fid, m_id, m_addr, m_name, is_manager, datetime FROM members WHERE fid = $1 and m_id = $2",
+            fid,
+            gid.to_hex(),
+        )
+        .fetch_one(get_pool()?)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
+
+        Ok(Member {
+            id: rec.id,
+            fid: rec.fid,
+            m_id: GroupId::from_hex(rec.m_id).unwrap_or(GroupId::default()),
+            m_addr: PeerAddr::from_hex(rec.m_addr).unwrap_or(PeerAddr::default()),
+            m_name: rec.m_name,
+            is_manager: rec.is_manager,
+            datetime: rec.datetime,
+        })
+    }
+
     pub async fn is_manager(pool: &PgPool, fid: &i64, mid: &GroupId) -> Result<bool> {
         let recs = sqlx::query!(
             "SELECT is_deleted, is_manager FROM members WHERE fid = $1 and m_id = $2",
@@ -264,6 +317,35 @@ pub(crate) enum MessageType {
     Video,
 }
 
+impl MessageType {
+    fn to_i16(&self) -> i16 {
+        match self {
+            MessageType::String => 0,
+            MessageType::Image => 1,
+            MessageType::File => 2,
+            MessageType::Contact => 3,
+            MessageType::Emoji => 4,
+            MessageType::Record => 5,
+            MessageType::Phone => 6,
+            MessageType::Video => 7,
+        }
+    }
+
+    fn from_i16(i: i16) -> Self {
+        match i {
+            0 => MessageType::String,
+            1 => MessageType::Image,
+            2 => MessageType::File,
+            3 => MessageType::Contact,
+            4 => MessageType::Emoji,
+            5 => MessageType::Record,
+            6 => MessageType::Phone,
+            7 => MessageType::Video,
+            _ => MessageType::String,
+        }
+    }
+}
+
 /// Group Chat Message Model.
 pub(crate) struct Message {
     /// db auto-increment id.
@@ -271,7 +353,7 @@ pub(crate) struct Message {
     /// group's db id.
     fid: i64,
     /// member's db id.
-    m_id: i64,
+    mid: i64,
     /// message type.
     m_type: MessageType,
     /// message content.
@@ -281,12 +363,20 @@ pub(crate) struct Message {
 }
 
 impl Message {
-    pub async fn handle_network_message(
+    pub async fn from_network_message(
         gcd: &GroupId,
         fid: &i64,
-        mid: &GroupId,
+        m_id: &GroupId,
         msg: &NetworkMessage,
     ) -> Result<i64> {
+        let start = SystemTime::now();
+        let datetime = start
+            .duration_since(UNIX_EPOCH)
+            .map(|s| s.as_secs())
+            .unwrap_or(0) as i64; // safe for all life.
+
+        let member = Member::get(fid, m_id).await?;
+
         // handle event.
         let (m_type, raw) = match msg {
             NetworkMessage::String(content) => (MessageType::String, content.to_owned()),
@@ -326,11 +416,80 @@ impl Message {
             NetworkMessage::None => (MessageType::String, "".to_owned()),
         };
 
-        //let mut msg = Message::new(height, gdid, mdid, is_me, m_type, raw);
-        //msg.insert(&db)?;
-        //GroupChat::update_last_message(&db, gdid, &msg, false)?;
-        //Ok(msg)
-        Ok(0)
+        let rec = sqlx::query!(
+            "INSERT INTO messages (fid, mid, m_type, m_content, datetime) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+            fid,
+            member.id,
+            m_type.to_i16(),
+            raw,
+            datetime,
+        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+
+        Ok(rec.id)
+    }
+
+    async fn to_network_message(self) -> Result<NetworkMessage> {
+        match self.m_type {
+            MessageType::String => Ok(NetworkMessage::String(self.m_content)),
+            MessageType::Image => {
+                // TODO
+                let image_avatar = vec![];
+                Ok(NetworkMessage::Image(image_avatar))
+            }
+            MessageType::File => {
+                // TODO
+                let file = vec![];
+                Ok(NetworkMessage::File(self.m_content, file))
+            }
+            MessageType::Contact => {
+                //TODO
+                let v: Vec<&str> = self.m_content.split(";;").collect();
+                if v.len() != 3 {
+                    Ok(NetworkMessage::None)
+                } else {
+                    let cname = v[0].to_owned();
+                    let cgid = GroupId::from_hex(v[1])?;
+                    let caddr = PeerAddr::from_hex(v[2])?;
+                    // TODO
+                    let avatar = vec![];
+                    Ok(NetworkMessage::Contact(cname, cgid, caddr, avatar))
+                }
+            }
+            MessageType::Record => {
+                let (bytes, time) = if let Some(i) = self.m_content.find('-') {
+                    let time = self.m_content[0..i].parse().unwrap_or(0);
+                    // TOOD
+                    // let bytes = read_record_sync(base, gid, &model.content[i + 1..])?;
+                    let bytes = vec![];
+                    (bytes, time)
+                } else {
+                    (vec![], 0)
+                };
+                Ok(NetworkMessage::Record(bytes, time))
+            }
+            MessageType::Emoji => Ok(NetworkMessage::Emoji),
+            MessageType::Phone => Ok(NetworkMessage::Phone),
+            MessageType::Video => Ok(NetworkMessage::Video),
+        }
+    }
+
+    pub async fn get_id(id: &i64) -> Result<Message> {
+        let rec = sqlx::query!(
+            "SELECT id, fid, mid, m_type, m_content, datetime FROM messages WHERE id = $1",
+            id,
+        )
+        .fetch_one(get_pool()?)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
+
+        Ok(Message {
+            id: rec.id,
+            fid: rec.fid,
+            mid: rec.mid,
+            m_type: MessageType::from_i16(rec.m_type),
+            m_content: rec.m_content,
+            datetime: rec.datetime,
+        })
     }
 }
 
@@ -460,26 +619,60 @@ pub(crate) struct Consensus {
 }
 
 impl Consensus {
-    pub async fn list(pool: &PgPool, fid: &i64, from: &i64, to: &i64) -> Result<Vec<Consensus>> {
+    pub async fn pack(fid: &i64, from: &i64, to: &i64) -> Result<Vec<PackedEvent>> {
         let recs =
             sqlx::query!("SELECT id, fid, height, ctype, cid FROM consensus WHERE fid = $1 AND height BETWEEN $2 AND $3", fid, from, to)
-                .fetch_all(pool)
-                .await
-                .map_err(|_| new_io_error("database failure."))?;
+            .fetch_all(get_pool()?)
+            .await
+            .map_err(|_| new_io_error("database failure."))?;
 
-        let mut consensus = vec![];
+        let mut packed = vec![];
 
         for res in recs {
-            consensus.push(Self {
-                id: res.id,
-                fid: res.fid,
-                height: res.height,
-                ctype: ConsensusType::from_i16(res.ctype),
-                cid: res.cid,
-            });
+            match ConsensusType::from_i16(res.ctype) {
+                ConsensusType::GroupInfo => {
+                    //
+                }
+                ConsensusType::GroupTransfer => {
+                    //
+                }
+                ConsensusType::GroupManagerAdd => {
+                    //
+                }
+                ConsensusType::GroupManagerDel => {
+                    //
+                }
+                ConsensusType::GroupClose => {
+                    //
+                }
+                ConsensusType::MemberInfo => {
+                    //
+                }
+                ConsensusType::MemberJoin => {
+                    let m = Member::get_id(&res.cid).await?;
+                    // TODO load member avatar.
+                    let mavatar = vec![];
+                    packed.push(PackedEvent::MemberJoin(
+                        m.m_id, m.m_addr, m.m_name, mavatar, m.datetime,
+                    ))
+                }
+                ConsensusType::MemberLeave => {
+                    //
+                }
+                ConsensusType::MessageCreate => {
+                    let m = Message::get_id(&res.cid).await?;
+                    let datetime = m.datetime;
+                    let mem = Member::get_id(&m.mid).await?;
+                    let nmsg = m.to_network_message().await?;
+                    packed.push(PackedEvent::MessageCreate(mem.m_id, nmsg, datetime))
+                }
+                ConsensusType::None => {
+                    // None
+                }
+            }
         }
 
-        Ok(consensus)
+        Ok(packed)
     }
 
     pub async fn insert(

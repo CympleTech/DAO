@@ -103,13 +103,25 @@ impl Layer {
                                         // save to db.
                                         let db = storage::INSTANCE.get().unwrap();
                                         gc.insert(&db.pool).await?;
-                                        Member::new(gc.id, gid, addr, m_name, true)
-                                            .insert(&db.pool)
-                                            .await?;
 
                                         // TODO save avatar.
 
+                                        // add frist member.
+                                        let mut mem = Member::new(gc.id, gid, addr, m_name, true);
+                                        mem.insert(&db.pool).await?;
+                                        println!("add member ok");
+
                                         self.create_group(gc.id, gcd, gid, addr);
+                                        println!("add group ok");
+
+                                        self.add_height(
+                                            &gcd,
+                                            &mem.id,
+                                            ConsensusType::MemberJoin,
+                                            &db.pool,
+                                        )
+                                        .await?;
+                                        println!("add consensus ok");
                                         gcd
                                     }
                                     GroupInfo::Encrypted(gcd, ..) => gcd,
@@ -134,6 +146,7 @@ impl Layer {
                                 // check is member.
                                 let db = storage::INSTANCE.get().unwrap();
                                 if Member::exist(&db.pool, &fid, &gid).await? {
+                                    self.add_member(&gcd, gid, addr);
                                     Self::had_join(height, gcd, gid, addr, &mut results);
                                 } else {
                                     let s = SendType::Result(0, addr, false, false, vec![]);
@@ -146,6 +159,7 @@ impl Layer {
                                 let group = GroupChat::get_id(&db.pool, &fid).await?;
                                 // check is member.
                                 if Member::exist(&db.pool, fid, &gid).await? {
+                                    self.add_member(&gcd, gid, addr);
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
                                     return Ok(results);
                                 }
@@ -156,9 +170,9 @@ impl Layer {
 
                                     // TOOD save avatar.
 
+                                    self.add_member(&gcd, gid, addr);
                                     self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
                                         .await?;
-                                    self.add_member(&gcd, gid, addr);
 
                                     // return join result.
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
@@ -173,6 +187,7 @@ impl Layer {
                                 let group = GroupChat::get_id(&db.pool, &fid).await?;
                                 // check is member.
                                 if Member::exist(&db.pool, fid, &gid).await? {
+                                    self.add_member(&gcd, gid, addr);
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
                                     return Ok(results);
                                 }
@@ -192,9 +207,9 @@ impl Layer {
 
                                     // TOOD save avatar.
 
+                                    self.add_member(&gcd, gid, addr);
                                     self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
                                         .await?;
-                                    self.add_member(&gcd, gid, addr);
 
                                     // return join result.
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
@@ -206,6 +221,7 @@ impl Layer {
                                 let group = GroupChat::get_id(&db.pool, fid).await?;
                                 // check is member.
                                 if Member::exist(&db.pool, fid, &gid).await? {
+                                    self.add_member(&gcd, gid, addr);
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
                                     return Ok(results);
                                 }
@@ -224,9 +240,9 @@ impl Layer {
 
                                 // TOOD save avatar.
 
+                                self.add_member(&gcd, gid, addr);
                                 self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
                                     .await?;
-                                self.add_member(&gcd, gid, addr);
 
                                 // return join result.
                                 self.agree_join(gcd, gid, addr, group, &mut results).await?;
@@ -281,7 +297,9 @@ impl Layer {
             | LayerEvent::OnlinePong(gcd)
             | LayerEvent::MemberOnline(gcd, ..)
             | LayerEvent::MemberOffline(gcd, ..)
-            | LayerEvent::Sync(gcd, ..) => gcd,
+            | LayerEvent::Sync(gcd, ..)
+            | LayerEvent::SyncReq(gcd, ..)
+            | LayerEvent::Packed(gcd, ..) => gcd,
         };
 
         println!("Check online.");
@@ -363,7 +381,7 @@ impl Layer {
                         (0, ConsensusType::MemberLeave)
                     }
                     Event::MessageCreate(mid, nmsg, _) => {
-                        let id = Message::handle_network_message(&gcd, fid, mid, nmsg).await?;
+                        let id = Message::from_network_message(&gcd, fid, mid, nmsg).await?;
                         (id, ConsensusType::MessageCreate)
                     }
                     Event::MemberJoin(..) => return Ok(()), // Never here.
@@ -378,6 +396,24 @@ impl Layer {
                     add_layer(results, *mid, s);
                 }
             }
+            LayerEvent::SyncReq(gcd, from) => {
+                let (height, fid) = self.height_and_fid(&gcd)?;
+                println!("Got sync request. height: {} from: {}", height, from);
+                if height > from {
+                    let to = if height - from > 100 {
+                        from + 100
+                    } else {
+                        height
+                    };
+                    let packed = Consensus::pack(&fid, &from, &to).await?;
+                    let event = LayerEvent::Packed(gcd, height, from, to, packed);
+                    let data = postcard::to_allocvec(&event).unwrap_or(vec![]);
+                    let s = SendType::Event(0, addr, data);
+                    add_layer(results, fmid, s);
+                    println!("Sended sync request results. from: {}, to: {}", from, to);
+                }
+            }
+            LayerEvent::Packed(..) => {}        // Nerver here.
             LayerEvent::MemberOnline(..) => {}  // Nerver here.
             LayerEvent::MemberOffline(..) => {} // Never here.
         }
@@ -437,6 +473,7 @@ impl Layer {
 
             // save to db.
             Consensus::insert(db, fid, height, cid, &ctype).await?;
+            GroupChat::add_height(fid, height).await?;
 
             Ok(*height)
         } else {
@@ -519,7 +556,7 @@ impl Layer {
         let res = GroupResult::Join(gcd, true, height);
         let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
         let s = SendType::Result(0, addr, true, false, data);
-        add_layer(&mut results, gid, s);
+        add_layer(results, gid, s);
     }
 
     async fn agree_join(

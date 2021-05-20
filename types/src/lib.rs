@@ -162,8 +162,31 @@ pub enum LayerEvent {
     MemberOnline(GroupId, GroupId, PeerAddr),
     /// offline group member. GroupId, member, address.
     MemberOffline(GroupId, GroupId, PeerAddr),
-    /// sync group message. GroupId, height, event.
+    /// sync group event. GroupId, height, event.
     Sync(GroupId, i64, Event),
+    /// packed sync event request. GroupId, from.
+    SyncReq(GroupId, i64),
+    /// packed sync event. GroupId, height, from, to, packed events.
+    Packed(GroupId, i64, i64, i64, Vec<PackedEvent>),
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum PackedEvent {
+    GroupInfo,
+    GroupTransfer,
+    GroupManagerAdd,
+    GroupManagerDel,
+    GroupClose,
+    /// params: member id, member address, member name, member avatar.
+    MemberInfo(GroupId, PeerAddr, String, Vec<u8>),
+    /// params: member id, member address, member name, member avatar, member join time.
+    MemberJoin(GroupId, PeerAddr, String, Vec<u8>, i64),
+    /// params: member id,
+    MemberLeave(GroupId),
+    /// params: member id, message, message time.
+    MessageCreate(GroupId, NetworkMessage, i64),
+    /// had in before.
+    None,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -173,9 +196,13 @@ pub enum Event {
     GroupManagerAdd,
     GroupManagerDel,
     GroupClose,
+    /// params: member id, member address, member name, member avatar.
     MemberInfo(GroupId, PeerAddr, String, Vec<u8>),
+    /// params: member id, member address, member name, member avatar, member join time.
     MemberJoin(GroupId, PeerAddr, String, Vec<u8>, i64),
+    /// params: member id,
     MemberLeave(GroupId),
+    /// params: member id, message, height.
     MessageCreate(GroupId, NetworkMessage, i64),
 }
 

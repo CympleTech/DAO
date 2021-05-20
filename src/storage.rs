@@ -1,10 +1,11 @@
-use config::{Config as CFG, ConfigError};
+use config::Config as CFG;
 use dotenv::dotenv;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres};
+use sqlx::{PgPool, Pool, Postgres};
 use std::env;
+use tdn::types::primitive::{new_io_error, Result};
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -12,22 +13,33 @@ struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Result<Self, ConfigError> {
+    pub fn from_env() -> Result<Self> {
         let mut cfg = CFG::new();
 
         // database url.
         let database = env::var("DATABASE_URL").expect("DATABASE_URL missing");
-        cfg.set("database", database)?;
+
+        cfg.set("database", database)
+            .map_err(|_| new_io_error("set config error."))?;
 
         // others.
         for (key, value) in env::vars() {
-            cfg.set(&key, value)?;
+            cfg.set(&key, value)
+                .map_err(|_| new_io_error("set config error."))?;
         }
-        cfg.try_into()
+        cfg.try_into().map_err(|_| new_io_error("config error."))
     }
 }
 
 pub static INSTANCE: OnceCell<DB> = OnceCell::new();
+
+#[inline]
+pub fn get_pool<'a>() -> Result<&'a PgPool> {
+    INSTANCE
+        .get()
+        .map(|db| &db.pool)
+        .ok_or(new_io_error("DB error!"))
+}
 
 pub struct DB {
     pub pool: Pool<Postgres>,
