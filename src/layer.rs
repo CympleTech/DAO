@@ -1,4 +1,3 @@
-use sqlx::postgres::PgPool;
 use std::collections::HashMap;
 use tdn::types::{
     group::GroupId,
@@ -12,7 +11,6 @@ use group_chat_types::{
 };
 
 use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message};
-use crate::storage;
 
 /// Group chat server to ESSE.
 #[inline]
@@ -27,17 +25,15 @@ pub(crate) struct Layer {
 
 impl Layer {
     pub(crate) async fn new() -> Result<Layer> {
-        let db = storage::INSTANCE.get().unwrap();
-
         // load managers
-        let ms = Manager::all(&db.pool).await?;
+        let ms = Manager::all().await?;
         let mut managers = HashMap::new();
         for manager in ms {
             managers.insert(manager.gid, (manager.is_closed, manager.times));
         }
 
         // load groups
-        let gs = GroupChat::all(&db.pool).await?;
+        let gs = GroupChat::all().await?;
         let mut groups = HashMap::new();
         for group in gs {
             groups.insert(group.g_id, (vec![], group.height, group.id));
@@ -100,27 +96,20 @@ impl Layer {
                                             vec![],
                                         );
 
-                                        // save to db.
-                                        let db = storage::INSTANCE.get().unwrap();
-                                        gc.insert(&db.pool).await?;
+                                        gc.insert().await?;
 
                                         // TODO save avatar.
 
                                         // add frist member.
                                         let mut mem = Member::new(gc.id, gid, addr, m_name, true);
-                                        mem.insert(&db.pool).await?;
+                                        mem.insert().await?;
                                         println!("add member ok");
 
                                         self.create_group(gc.id, gcd, gid, addr);
                                         println!("add group ok");
 
-                                        self.add_height(
-                                            &gcd,
-                                            &mem.id,
-                                            ConsensusType::MemberJoin,
-                                            &db.pool,
-                                        )
-                                        .await?;
+                                        self.add_height(&gcd, &mem.id, ConsensusType::MemberJoin)
+                                            .await?;
                                         println!("add consensus ok");
                                         gcd
                                     }
@@ -144,8 +133,8 @@ impl Layer {
                             JoinProof::Had(proof) => {
                                 let (height, fid) = self.height_and_fid(&gcd)?;
                                 // check is member.
-                                let db = storage::INSTANCE.get().unwrap();
-                                if Member::exist(&db.pool, &fid, &gid).await? {
+
+                                if Member::exist(&fid, &gid).await? {
                                     self.add_member(&gcd, gid, addr);
                                     Self::had_join(height, gcd, gid, addr, &mut results);
                                 } else {
@@ -155,10 +144,10 @@ impl Layer {
                             }
                             JoinProof::Open(mname, mavatar) => {
                                 let fid = self.fid(&gcd)?;
-                                let db = storage::INSTANCE.get().unwrap();
-                                let group = GroupChat::get_id(&db.pool, &fid).await?;
+
+                                let group = GroupChat::get_id(&fid).await?;
                                 // check is member.
-                                if Member::exist(&db.pool, fid, &gid).await? {
+                                if Member::exist(fid, &gid).await? {
                                     self.add_member(&gcd, gid, addr);
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
                                     return Ok(results);
@@ -166,13 +155,12 @@ impl Layer {
 
                                 if group.g_type == GroupType::Open {
                                     let mut m = Member::new(*fid, gid, addr, mname, false);
-                                    m.insert(&db.pool).await?;
+                                    m.insert().await?;
 
                                     // TOOD save avatar.
 
                                     self.add_member(&gcd, gid, addr);
-                                    self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
-                                        .await?;
+                                    self.broadcast_join(&gcd, m, mavatar, &mut results).await?;
 
                                     // return join result.
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
@@ -183,16 +171,16 @@ impl Layer {
                             }
                             JoinProof::Link(link_gid, mname, mavatar) => {
                                 let fid = self.fid(&gcd)?;
-                                let db = storage::INSTANCE.get().unwrap();
-                                let group = GroupChat::get_id(&db.pool, &fid).await?;
+
+                                let group = GroupChat::get_id(&fid).await?;
                                 // check is member.
-                                if Member::exist(&db.pool, fid, &gid).await? {
+                                if Member::exist(fid, &gid).await? {
                                     self.add_member(&gcd, gid, addr);
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
                                     return Ok(results);
                                 }
 
-                                if !Member::exist(&db.pool, fid, &link_gid).await? {
+                                if !Member::exist(fid, &link_gid).await? {
                                     // TODO add join result invite url lose efficacy.
                                     let s = SendType::Result(0, addr, false, false, vec![]);
                                     add_layer(&mut results, gid, s);
@@ -203,13 +191,12 @@ impl Layer {
                                     // TODO add member request.
                                 } else {
                                     let mut m = Member::new(*fid, gid, addr, mname, false);
-                                    m.insert(&db.pool).await?;
+                                    m.insert().await?;
 
                                     // TOOD save avatar.
 
                                     self.add_member(&gcd, gid, addr);
-                                    self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
-                                        .await?;
+                                    self.broadcast_join(&gcd, m, mavatar, &mut results).await?;
 
                                     // return join result.
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
@@ -217,16 +204,16 @@ impl Layer {
                             }
                             JoinProof::Invite(invite_gid, _proof, mname, mavatar) => {
                                 let fid = self.fid(&gcd)?;
-                                let db = storage::INSTANCE.get().unwrap();
-                                let group = GroupChat::get_id(&db.pool, fid).await?;
+
+                                let group = GroupChat::get_id(fid).await?;
                                 // check is member.
-                                if Member::exist(&db.pool, fid, &gid).await? {
+                                if Member::exist(fid, &gid).await? {
                                     self.add_member(&gcd, gid, addr);
                                     self.agree_join(gcd, gid, addr, group, &mut results).await?;
                                     return Ok(results);
                                 }
 
-                                if !Member::is_manager(&db.pool, fid, &invite_gid).await? {
+                                if !Member::is_manager(fid, &invite_gid).await? {
                                     // TODO add join result invite url lose efficacy.
                                     let s = SendType::Result(0, addr, false, false, vec![]);
                                     add_layer(&mut results, gid, s);
@@ -236,13 +223,12 @@ impl Layer {
                                 // TODO check proof.
 
                                 let mut m = Member::new(*fid, gid, addr, mname, false);
-                                m.insert(&db.pool).await?;
+                                m.insert().await?;
 
                                 // TOOD save avatar.
 
                                 self.add_member(&gcd, gid, addr);
-                                self.broadcast_join(&gid, &db.pool, m, mavatar, &mut results)
-                                    .await?;
+                                self.broadcast_join(&gcd, m, mavatar, &mut results).await?;
 
                                 // return join result.
                                 self.agree_join(gcd, gid, addr, group, &mut results).await?;
@@ -348,7 +334,7 @@ impl Layer {
             }
             LayerEvent::Sync(gcd, _, event) => {
                 println!("Start handle Event.");
-                let db = storage::INSTANCE.get().unwrap();
+
                 let fid = self.fid(&gcd)?;
 
                 let (cid, ctype) = match &event {
@@ -387,7 +373,7 @@ impl Layer {
                     Event::MemberJoin(..) => return Ok(()), // Never here.
                 };
 
-                let height = self.add_height(&gcd, &cid, ctype, &db.pool).await?;
+                let height = self.add_height(&gcd, &cid, ctype).await?;
                 println!("Event broadcast");
                 let new_data = postcard::to_allocvec(&LayerEvent::Sync(gcd, height, event))
                     .map_err(|_| new_io_error("serialize event error."))?;
@@ -466,13 +452,12 @@ impl Layer {
         gid: &GroupId,
         cid: &i64,
         ctype: ConsensusType,
-        db: &PgPool,
     ) -> Result<i64> {
         if let Some((_, height, fid)) = self.groups.get_mut(gid) {
             *height += 1;
 
-            // save to db.
-            Consensus::insert(db, fid, height, cid, &ctype).await?;
+            // save.
+            Consensus::insert(fid, height, cid, &ctype).await?;
             GroupChat::add_height(fid, height).await?;
 
             Ok(*height)
@@ -514,14 +499,14 @@ impl Layer {
 
     pub async fn broadcast_join(
         &mut self,
-        gid: &GroupId,
-        db: &PgPool,
+        gcd: &GroupId,
         member: Member,
         avatar: Vec<u8>,
         results: &mut HandleResult,
     ) -> Result<()> {
+        println!("start broadcast join...");
         let height = self
-            .add_height(gid, &member.id, ConsensusType::MemberJoin, db)
+            .add_height(gcd, &member.id, ConsensusType::MemberJoin)
             .await?;
 
         let datetime = member.datetime;
@@ -534,14 +519,15 @@ impl Layer {
         );
 
         let new_data =
-            postcard::to_allocvec(&LayerEvent::Sync(*gid, height, event)).unwrap_or(vec![]);
+            postcard::to_allocvec(&LayerEvent::Sync(*gcd, height, event)).unwrap_or(vec![]);
 
-        if let Some((members, _, _)) = self.groups.get(gid) {
+        if let Some((members, _, _)) = self.groups.get(gcd) {
             for (mid, maddr) in members {
                 let s = SendType::Event(0, *maddr, new_data.clone());
                 add_layer(results, *mid, s);
             }
         }
+        println!("over broadcast join...");
 
         Ok(())
     }
@@ -567,10 +553,9 @@ impl Layer {
         group: GroupChat,
         results: &mut HandleResult,
     ) -> Result<()> {
-        let height = self.height(&gcd)?;
         let gavatar = vec![]; // TOOD load group avatar.
         let group_info = group.to_group_info(gavatar);
-        let res = GroupResult::Agree(gcd, group_info, height);
+        let res = GroupResult::Agree(gcd, group_info);
         let d = postcard::to_allocvec(&res).unwrap_or(vec![]);
         let s = SendType::Result(0, addr, true, false, d);
         add_layer(results, gid, s);

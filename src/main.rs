@@ -32,16 +32,7 @@ fn main() {
 }
 
 pub async fn start(db_path: String) -> Result<()> {
-    storage::init().await;
-    let db = storage::INSTANCE.get().unwrap();
-
-    // Make a simple query to return the given parameter
-    let row: (i64,) = sqlx::query_as("SELECT $1")
-        .bind(150_i64)
-        .fetch_one(&db.pool)
-        .await
-        .unwrap();
-    assert_eq!(row.0, 150);
+    storage::init().await?;
 
     let db_path = PathBuf::from(db_path);
     if !db_path.exists() {

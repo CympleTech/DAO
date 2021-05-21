@@ -1,4 +1,3 @@
-use sqlx::postgres::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tdn::types::{
     group::GroupId,
@@ -92,11 +91,11 @@ impl GroupChat {
         }
     }
 
-    pub async fn get_id(pool: &PgPool, id: &i64) -> Result<GroupChat> {
+    pub async fn get_id(id: &i64) -> Result<GroupChat> {
         let res = sqlx::query!(
             "SELECT id, owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime FROM groups WHERE is_deleted = false and id = $1",
             id
-        ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
 
         Ok(Self {
             id: res.id,
@@ -113,11 +112,11 @@ impl GroupChat {
         })
     }
 
-    pub async fn all(pool: &PgPool) -> Result<Vec<GroupChat>> {
+    pub async fn all() -> Result<Vec<GroupChat>> {
         let recs = sqlx::query!(
             "SELECT id, owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime FROM groups WHERE is_deleted = false ORDER BY id",
         )
-            .fetch_all(pool).await.map_err(|_| new_io_error("database failure."))?;
+            .fetch_all(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
 
         let mut managers = vec![];
 
@@ -140,7 +139,7 @@ impl GroupChat {
         Ok(managers)
     }
 
-    pub async fn insert(&mut self, pool: &PgPool) -> Result<()> {
+    pub async fn insert(&mut self) -> Result<()> {
         let rec = sqlx::query!(
             "INSERT INTO groups (owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
             self.owner.to_hex(),
@@ -153,7 +152,7 @@ impl GroupChat {
             hex::encode(&self.key_hash),
             self.is_closed,
             self.datetime
-        ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
 
         self.id = rec.id;
         Ok(())
@@ -212,7 +211,7 @@ impl Member {
         }
     }
 
-    pub async fn insert(&mut self, pool: &PgPool) -> Result<()> {
+    pub async fn insert(&mut self) -> Result<()> {
         let rec = sqlx::query!(
             "INSERT INTO members (fid, m_id, m_addr, m_name, is_manager, datetime) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
             self.fid,
@@ -221,19 +220,19 @@ impl Member {
             self.m_name,
             self.is_manager,
             self.datetime
-        ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
 
         self.id = rec.id;
         Ok(())
     }
 
-    pub async fn exist(pool: &PgPool, fid: &i64, mid: &GroupId) -> Result<bool> {
+    pub async fn exist(fid: &i64, mid: &GroupId) -> Result<bool> {
         let recs = sqlx::query!(
             "SELECT is_deleted FROM members WHERE fid = $1 and m_id = $2",
             fid,
             mid.to_hex()
         )
-        .fetch_all(pool)
+        .fetch_all(get_pool()?)
         .await
         .map_err(|_| new_io_error("database failure."))?;
 
@@ -286,13 +285,13 @@ impl Member {
         })
     }
 
-    pub async fn is_manager(pool: &PgPool, fid: &i64, mid: &GroupId) -> Result<bool> {
+    pub async fn is_manager(fid: &i64, mid: &GroupId) -> Result<bool> {
         let recs = sqlx::query!(
             "SELECT is_deleted, is_manager FROM members WHERE fid = $1 and m_id = $2",
             fid,
             mid.to_hex()
         )
-        .fetch_all(pool)
+        .fetch_all(get_pool()?)
         .await
         .map_err(|_| new_io_error("database failure."))?;
 
@@ -524,11 +523,11 @@ impl Manager {
         }
     }
 
-    pub async fn all(pool: &PgPool) -> Result<Vec<Manager>> {
+    pub async fn all() -> Result<Vec<Manager>> {
         let recs = sqlx::query!(
             "SELECT id, gid, times, is_closed, datetime FROM managers WHERE is_deleted = false ORDER BY id",
         )
-            .fetch_all(pool).await.map_err(|_| new_io_error("database failure."))?;
+            .fetch_all(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
 
         let mut managers = vec![];
 
@@ -545,14 +544,14 @@ impl Manager {
         Ok(managers)
     }
 
-    pub async fn insert(&mut self, pool: &PgPool) -> Result<()> {
+    pub async fn insert(&mut self) -> Result<()> {
         let rec = sqlx::query!(
             "INSERT INTO managers ( gid, times, is_closed, datetime ) VALUES ( $1, $2, $3, $4 ) RETURNING id",
             self.gid.to_hex(),
             self.times,
             self.is_closed,
             self.datetime
-        ).fetch_one(pool).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
 
         self.id = rec.id;
         Ok(())
@@ -675,13 +674,7 @@ impl Consensus {
         Ok(packed)
     }
 
-    pub async fn insert(
-        pool: &PgPool,
-        fid: &i64,
-        height: &i64,
-        cid: &i64,
-        ctype: &ConsensusType,
-    ) -> Result<()> {
+    pub async fn insert(fid: &i64, height: &i64, cid: &i64, ctype: &ConsensusType) -> Result<()> {
         let rec = sqlx::query!(
             "INSERT INTO consensus ( fid, height, ctype, cid ) VALUES ( $1, $2, $3, $4 )",
             fid,
@@ -689,7 +682,7 @@ impl Consensus {
             ctype.to_i16(),
             cid
         )
-        .execute(pool)
+        .execute(get_pool()?)
         .await
         .map_err(|_| new_io_error("database failure."))?;
 

@@ -9,7 +9,6 @@ use tdn::types::{
 
 use crate::layer::Layer;
 use crate::models::Manager;
-use crate::storage;
 
 pub(crate) struct RpcState {
     pub layer: Arc<RwLock<Layer>>,
@@ -31,8 +30,7 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, layer: Arc<RwLock<Layer>>) -> RpcH
             let mut results = HandleResult::rpc(json!(params));
 
             let mut manager = Manager::new(gid);
-            let db = storage::INSTANCE.get().unwrap();
-            manager.insert(&db.pool).await?;
+            manager.insert().await?;
 
             state.layer.write().await.add_manager(gid, 5);
             results.networks.push(NetworkType::AddGroup(gid));

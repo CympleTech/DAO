@@ -27,42 +27,29 @@ impl Config {
             cfg.set(&key, value)
                 .map_err(|_| new_io_error("set config error."))?;
         }
-        cfg.try_into().map_err(|_| new_io_error("config error."))
+        cfg.try_into()
+            .map_err(|_| new_io_error("config init error."))
     }
 }
 
-pub static INSTANCE: OnceCell<DB> = OnceCell::new();
+pub static INSTANCE: OnceCell<Pool<Postgres>> = OnceCell::new();
 
 #[inline]
 pub fn get_pool<'a>() -> Result<&'a PgPool> {
-    INSTANCE
-        .get()
-        .map(|db| &db.pool)
-        .ok_or(new_io_error("DB error!"))
+    INSTANCE.get().ok_or(new_io_error("DB get error!"))
 }
 
-pub struct DB {
-    pub pool: Pool<Postgres>,
-}
-
-impl DB {
-    pub fn global() -> &'static DB {
-        INSTANCE.get().expect("DB is not initialized")
-    }
-
-    async fn new() -> DB {
-        let cfg = Config::from_env().unwrap();
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&cfg.database)
-            .await
-            .unwrap();
-        DB { pool }
-    }
-}
-
-pub async fn init() {
+pub async fn init() -> Result<()> {
     dotenv().ok();
-    let db = DB::new().await;
-    let _ = INSTANCE.set(db);
+    let cfg = Config::from_env()?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cfg.database)
+        .await
+        .map_err(|_| new_io_error("DB postgres connect failure! check database & user/password"))?;
+
+    INSTANCE
+        .set(pool)
+        .map_err(|_| new_io_error("DB set error!"))
 }

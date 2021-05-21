@@ -142,8 +142,8 @@ pub enum GroupResult {
     /// params: GroupId.
     Waiting(GroupId),
     /// join result. agree to join.
-    /// params: GroupId, Group info, group_event_height.
-    Agree(GroupId, GroupInfo, i64),
+    /// params: GroupId, Group info.
+    Agree(GroupId, GroupInfo),
     /// join result. reject to join.
     /// params: GroupId.
     Reject(GroupId),
