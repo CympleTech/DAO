@@ -69,25 +69,28 @@ pub enum GroupInfo {
     ),
 }
 
-/// Group chat connect data.
+/// Group chat connect data structure.
+/// params: Group_ID, join_proof.
 #[derive(Serialize, Deserialize)]
-pub enum GroupConnect {
-    /// check if account has permission to create group, and supported group types.
-    Check,
-    /// create a Group Chat.
-    /// params: group_info, proof.
-    Create(GroupInfo, Proof),
-    /// join a Group Chat.
-    /// params: Group_ID, join_proof.
-    Join(GroupId, JoinProof),
+pub struct LayerConnect(pub GroupId, pub ConnectProof);
+
+#[derive(Serialize, Deserialize)]
+pub struct LayerResult(pub GroupId, pub i64);
+
+/// Group chat connect proof.
+#[derive(Serialize, Deserialize)]
+pub enum ConnectProof {
+    /// when is joined in group chat, can only use had to join (connect).
+    /// params: proof.
+    Common(Proof),
+    /// zero-knowledge-proof. not has account id.
+    /// verify(proof, key_hash, current_peer_addr).
+    Zkp(Proof), // TODO MOCK-PROOF
 }
 
 /// Group chat join proof.
 #[derive(Serialize, Deserialize)]
 pub enum JoinProof {
-    /// when is joined in group chat, can only use had to join (connect).
-    /// params: proof.
-    Had(Proof),
     /// when join the open group chat.
     /// params: member name, member avatar.
     Open(String, Vec<u8>),
@@ -126,38 +129,34 @@ impl CheckType {
     }
 }
 
-/// Group chat connect result data.
-#[derive(Serialize, Deserialize)]
-pub enum GroupResult {
-    /// result check.
-    /// params: account, is_ok, supported_group_types.
-    Check(CheckType, Vec<GroupType>),
-    /// result create group success.
-    /// params: Group_ID, is_ok.
-    Create(GroupId, bool),
-    /// connect result.
-    /// params: GroupId, is_ok, group_event_height.
-    Join(GroupId, bool, i64),
-    /// join result, need group manager agree.
-    /// params: GroupId.
-    Waiting(GroupId),
-    /// join result. agree to join.
-    /// params: GroupId, Group info.
-    Agree(GroupId, GroupInfo),
-    /// join result. reject to join.
-    /// params: GroupId.
-    Reject(GroupId),
-}
-
 /// ESSE app's layer Event.
 #[derive(Serialize, Deserialize)]
 pub enum LayerEvent {
-    /// offline GroupId. as BaseLayerEvent.
+    /// offline. as BaseLayerEvent.
     Offline(GroupId),
-    /// online ping GroupId.
-    OnlinePing(GroupId),
-    /// online pong GroupId
-    OnlinePong(GroupId),
+    /// suspend. as BaseLayerEvent.
+    Suspend(GroupId),
+    /// actived. as BaseLayerEvent.
+    Actived(GroupId),
+    /// check if account has permission to create group, and supported group types.
+    Check,
+    /// result check.
+    /// params: account, is_ok, supported_group_types.
+    CheckResult(CheckType, Vec<GroupType>),
+    /// create a Group Chat.
+    /// params: group_info, proof.
+    Create(GroupInfo, Proof),
+    /// result create group success.
+    /// params: Group_ID, is_ok.
+    CreateResult(GroupId, bool),
+    /// join group request.
+    Request(GroupId, JoinProof),
+    /// manager handle request result.
+    RequestResult(GroupId, bool),
+    /// agree join request.
+    Agree(GroupId, GroupInfo),
+    /// reject join request.
+    Reject(GroupId),
     /// online group member. GroupId, member, address.
     MemberOnline(GroupId, GroupId, PeerAddr),
     /// offline group member. GroupId, member, address.

@@ -6,8 +6,8 @@ use tdn::types::{
 };
 
 use group_chat_types::{
-    CheckType, Event, GroupConnect, GroupInfo, GroupResult, GroupType, JoinProof, LayerEvent,
-    GROUP_CHAT_ID,
+    CheckType, ConnectProof, Event, GroupInfo, GroupType, JoinProof, LayerConnect, LayerEvent,
+    LayerResult, GROUP_CHAT_ID,
 };
 
 use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message};
@@ -47,196 +47,32 @@ impl Layer {
 
         match msg {
             RecvType::Connect(addr, data) => {
-                let connect = postcard::from_bytes(&data)
+                let LayerConnect(gcd, connect) = postcard::from_bytes(&data)
                     .map_err(|_e| new_io_error("deserialize group chat connect failure"))?;
 
                 match connect {
-                    GroupConnect::Check => {
-                        let supported =
-                            vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
-                        let res = if let Some((is_closed, limit)) = self.managers.get(&gid) {
-                            if *is_closed {
-                                GroupResult::Check(CheckType::Suspend, supported)
-                            } else if *limit > 0 {
-                                GroupResult::Check(CheckType::Allow, supported)
-                            } else {
-                                GroupResult::Check(CheckType::None, supported)
+                    ConnectProof::Common(proof) => {
+                        let (height, fid) = self.height_and_fid(&gcd)?;
+                        // check is member.
+
+                        if Member::exist(&fid, &gid).await? {
+                            self.add_member(&gcd, gid, addr);
+                            Self::had_join(height, gcd, gid, addr, &mut results);
+
+                            let new_data =
+                                postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, gid, addr))
+                                    .map_err(|_| new_io_error("serialize event error."))?;
+                            for (mid, maddr) in self.groups(&gcd)? {
+                                let s = SendType::Event(0, *maddr, new_data.clone());
+                                add_layer(&mut results, *mid, s);
                             }
                         } else {
-                            GroupResult::Check(CheckType::Deny, supported)
-                        };
-                        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
-                        let s = SendType::Result(0, addr, false, false, data);
-                        add_layer(&mut results, gid, s);
-                    }
-                    GroupConnect::Create(info, _proof) => {
-                        let supported =
-                            vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
-                        let (res, ok) = if let Some((is_closed, limit)) = self.managers.get(&gid) {
-                            if !*is_closed && *limit > 0 {
-                                // TODO check proof.
-                                let gcd = match info {
-                                    GroupInfo::Common(
-                                        owner,
-                                        m_name,
-                                        gcd,
-                                        gt,
-                                        need_agree,
-                                        name,
-                                        bio,
-                                        _avatar,
-                                    ) => {
-                                        let mut gc = GroupChat::new(
-                                            owner,
-                                            gcd,
-                                            gt,
-                                            name,
-                                            bio,
-                                            need_agree,
-                                            vec![],
-                                        );
-
-                                        gc.insert().await?;
-
-                                        // TODO save avatar.
-
-                                        // add frist member.
-                                        let mut mem = Member::new(gc.id, gid, addr, m_name, true);
-                                        mem.insert().await?;
-                                        println!("add member ok");
-
-                                        self.create_group(gc.id, gcd, gid, addr);
-                                        println!("add group ok");
-
-                                        self.add_height(&gcd, &mem.id, ConsensusType::MemberJoin)
-                                            .await?;
-                                        println!("add consensus ok");
-                                        gcd
-                                    }
-                                    GroupInfo::Encrypted(gcd, ..) => gcd,
-                                };
-                                (GroupResult::Create(gcd, true), true)
-                            } else {
-                                (GroupResult::Check(CheckType::None, supported), false)
-                            }
-                        } else {
-                            (GroupResult::Check(CheckType::Deny, supported), false)
-                        };
-
-                        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
-                        let s = SendType::Result(0, addr, ok, false, data);
-                        add_layer(&mut results, gid, s);
-                    }
-                    GroupConnect::Join(gcd, join_proof) => {
-                        // 1. check account is online, if not online, nothing.
-                        match join_proof {
-                            JoinProof::Had(proof) => {
-                                let (height, fid) = self.height_and_fid(&gcd)?;
-                                // check is member.
-
-                                if Member::exist(&fid, &gid).await? {
-                                    self.add_member(&gcd, gid, addr);
-                                    Self::had_join(height, gcd, gid, addr, &mut results);
-                                } else {
-                                    let s = SendType::Result(0, addr, false, false, vec![]);
-                                    add_layer(&mut results, gid, s);
-                                }
-                            }
-                            JoinProof::Open(mname, mavatar) => {
-                                let fid = self.fid(&gcd)?;
-
-                                let group = GroupChat::get_id(&fid).await?;
-                                // check is member.
-                                if Member::exist(fid, &gid).await? {
-                                    self.add_member(&gcd, gid, addr);
-                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
-                                    return Ok(results);
-                                }
-
-                                if group.g_type == GroupType::Open {
-                                    let mut m = Member::new(*fid, gid, addr, mname, false);
-                                    m.insert().await?;
-
-                                    // TOOD save avatar.
-
-                                    self.add_member(&gcd, gid, addr);
-                                    self.broadcast_join(&gcd, m, mavatar, &mut results).await?;
-
-                                    // return join result.
-                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
-                                    return Ok(results);
-                                } else {
-                                    // TODO add member request.
-                                }
-                            }
-                            JoinProof::Link(link_gid, mname, mavatar) => {
-                                let fid = self.fid(&gcd)?;
-
-                                let group = GroupChat::get_id(&fid).await?;
-                                // check is member.
-                                if Member::exist(fid, &gid).await? {
-                                    self.add_member(&gcd, gid, addr);
-                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
-                                    return Ok(results);
-                                }
-
-                                if !Member::exist(fid, &link_gid).await? {
-                                    // TODO add join result invite url lose efficacy.
-                                    let s = SendType::Result(0, addr, false, false, vec![]);
-                                    add_layer(&mut results, gid, s);
-                                    return Ok(results);
-                                }
-
-                                if group.is_need_agree {
-                                    // TODO add member request.
-                                } else {
-                                    let mut m = Member::new(*fid, gid, addr, mname, false);
-                                    m.insert().await?;
-
-                                    // TOOD save avatar.
-
-                                    self.add_member(&gcd, gid, addr);
-                                    self.broadcast_join(&gcd, m, mavatar, &mut results).await?;
-
-                                    // return join result.
-                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
-                                }
-                            }
-                            JoinProof::Invite(invite_gid, _proof, mname, mavatar) => {
-                                let fid = self.fid(&gcd)?;
-
-                                let group = GroupChat::get_id(fid).await?;
-                                // check is member.
-                                if Member::exist(fid, &gid).await? {
-                                    self.add_member(&gcd, gid, addr);
-                                    self.agree_join(gcd, gid, addr, group, &mut results).await?;
-                                    return Ok(results);
-                                }
-
-                                if !Member::is_manager(fid, &invite_gid).await? {
-                                    // TODO add join result invite url lose efficacy.
-                                    let s = SendType::Result(0, addr, false, false, vec![]);
-                                    add_layer(&mut results, gid, s);
-                                    return Ok(results);
-                                }
-
-                                // TODO check proof.
-
-                                let mut m = Member::new(*fid, gid, addr, mname, false);
-                                m.insert().await?;
-
-                                // TOOD save avatar.
-
-                                self.add_member(&gcd, gid, addr);
-                                self.broadcast_join(&gcd, m, mavatar, &mut results).await?;
-
-                                // return join result.
-                                self.agree_join(gcd, gid, addr, group, &mut results).await?;
-                            }
-                            JoinProof::Zkp(_proof) => {
-                                // TOOD zkp join.
-                            }
+                            let s = SendType::Result(0, addr, false, false, vec![]);
+                            add_layer(&mut results, gid, s);
                         }
+                    }
+                    ConnectProof::Zkp(_proof) => {
+                        //
                     }
                 }
             }
@@ -277,25 +113,11 @@ impl Layer {
         gevent: LayerEvent,
         results: &mut HandleResult,
     ) -> Result<()> {
-        let gcd = match gevent {
-            LayerEvent::Offline(gcd)
-            | LayerEvent::OnlinePing(gcd)
-            | LayerEvent::OnlinePong(gcd)
-            | LayerEvent::MemberOnline(gcd, ..)
-            | LayerEvent::MemberOffline(gcd, ..)
-            | LayerEvent::Sync(gcd, ..)
-            | LayerEvent::SyncReq(gcd, ..)
-            | LayerEvent::Packed(gcd, ..) => gcd,
-        };
-
-        println!("Check online.");
-        if !self.is_online_addr(&gcd, &addr) {
-            return Ok(());
-        }
-        println!("Check online ok.");
-
         match gevent {
             LayerEvent::Offline(gcd) => {
+                if !self.is_online_addr(&gcd, &addr) {
+                    return Ok(());
+                }
                 self.del_member(&gcd, &fmid);
 
                 let new_data = postcard::to_allocvec(&LayerEvent::MemberOffline(gcd, fmid, addr))
@@ -306,31 +128,175 @@ impl Layer {
                     add_layer(results, *mid, s);
                 }
             }
-            LayerEvent::OnlinePing(gcd) => {
-                self.add_member(&gcd, fmid, addr);
-
-                let new_data = postcard::to_allocvec(&LayerEvent::OnlinePong(gcd))
-                    .map_err(|_| new_io_error("serialize event error."))?;
-                let s = SendType::Event(0, addr, new_data.clone());
+            LayerEvent::Suspend(gcd) => {
+                // TODO
+            }
+            LayerEvent::Actived(gcd) => {
+                // TODO
+            }
+            LayerEvent::Check => {
+                let supported = vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
+                let res = if let Some((is_closed, limit)) = self.managers.get(&fmid) {
+                    if *is_closed {
+                        LayerEvent::CheckResult(CheckType::Suspend, supported)
+                    } else if *limit > 0 {
+                        LayerEvent::CheckResult(CheckType::Allow, supported)
+                    } else {
+                        LayerEvent::CheckResult(CheckType::None, supported)
+                    }
+                } else {
+                    LayerEvent::CheckResult(CheckType::Deny, supported)
+                };
+                let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+                let s = SendType::Event(0, addr, data);
                 add_layer(results, fmid, s);
+            }
+            LayerEvent::Create(info, _proof) => {
+                let supported = vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
+                let (res, ok) = if let Some((is_closed, limit)) = self.managers.get(&fmid) {
+                    if !*is_closed && *limit > 0 {
+                        // TODO check proof.
+                        let gcd = match info {
+                            GroupInfo::Common(
+                                owner,
+                                m_name,
+                                gcd,
+                                gt,
+                                need_agree,
+                                name,
+                                bio,
+                                _avatar,
+                            ) => {
+                                let mut gc =
+                                    GroupChat::new(owner, gcd, gt, name, bio, need_agree, vec![]);
 
-                let new_data = postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, fmid, addr))
-                    .map_err(|_| new_io_error("serialize event error."))?;
-                for (mid, maddr) in self.groups(&gcd)? {
-                    let s = SendType::Event(0, *maddr, new_data.clone());
-                    add_layer(results, *mid, s);
+                                gc.insert().await?;
+
+                                // TODO save avatar.
+
+                                // add frist member.
+                                let mut mem = Member::new(gc.id, fmid, addr, m_name, true);
+                                mem.insert().await?;
+                                println!("add member ok");
+
+                                self.create_group(gc.id, gcd, fmid, addr);
+                                println!("add group ok");
+
+                                self.add_height(&gcd, &mem.id, ConsensusType::MemberJoin)
+                                    .await?;
+                                println!("add consensus ok");
+                                gcd
+                            }
+                            GroupInfo::Encrypted(gcd, ..) => gcd,
+                        };
+                        (LayerEvent::CreateResult(gcd, true), true)
+                    } else {
+                        (LayerEvent::CheckResult(CheckType::None, supported), false)
+                    }
+                } else {
+                    (LayerEvent::CheckResult(CheckType::Deny, supported), false)
+                };
+
+                let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+                let s = SendType::Event(0, addr, data);
+                add_layer(results, fmid, s);
+            }
+            LayerEvent::Request(gcd, join_proof) => {
+                // 1. check account is online, if not online, nothing.
+                match join_proof {
+                    JoinProof::Open(mname, mavatar) => {
+                        let fid = self.fid(&gcd)?;
+
+                        let group = GroupChat::get_id(&fid).await?;
+                        // check is member.
+                        if Member::exist(fid, &fmid).await? {
+                            self.add_member(&gcd, fmid, addr);
+                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                            return Ok(());
+                        }
+
+                        if group.g_type == GroupType::Open {
+                            let mut m = Member::new(*fid, fmid, addr, mname, false);
+                            m.insert().await?;
+
+                            // TOOD save avatar.
+
+                            self.add_member(&gcd, fmid, addr);
+                            self.broadcast_join(&gcd, m, mavatar, results).await?;
+
+                            // return join result.
+                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                        } else {
+                            // TODO add member request.
+                        }
+                    }
+                    JoinProof::Link(link_gid, mname, mavatar) => {
+                        let fid = self.fid(&gcd)?;
+
+                        let group = GroupChat::get_id(&fid).await?;
+                        // check is member.
+                        if Member::exist(fid, &fmid).await? {
+                            self.add_member(&gcd, fmid, addr);
+                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                            return Ok(());
+                        }
+
+                        if !Member::exist(fid, &link_gid).await? {
+                            // TODO add join result invite url lose efficacy.
+                            return Ok(());
+                        }
+
+                        if group.is_need_agree {
+                            // TODO add member request.
+                        } else {
+                            let mut m = Member::new(*fid, fmid, addr, mname, false);
+                            m.insert().await?;
+
+                            // TOOD save avatar.
+
+                            self.add_member(&gcd, fmid, addr);
+                            self.broadcast_join(&gcd, m, mavatar, results).await?;
+
+                            // return join result.
+                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                        }
+                    }
+                    JoinProof::Invite(invite_gid, _proof, mname, mavatar) => {
+                        let fid = self.fid(&gcd)?;
+
+                        let group = GroupChat::get_id(fid).await?;
+                        // check is member.
+                        if Member::exist(fid, &fmid).await? {
+                            self.add_member(&gcd, fmid, addr);
+                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                            return Ok(());
+                        }
+
+                        if !Member::is_manager(fid, &invite_gid).await? {
+                            // TODO add join result invite url lose efficacy.
+                            return Ok(());
+                        }
+
+                        // TODO check proof.
+
+                        let mut m = Member::new(*fid, fmid, addr, mname, false);
+                        m.insert().await?;
+
+                        // TOOD save avatar.
+
+                        self.add_member(&gcd, fmid, addr);
+                        self.broadcast_join(&gcd, m, mavatar, results).await?;
+
+                        // return join result.
+                        self.agree_join(gcd, fmid, addr, group, results).await?;
+                    }
+                    JoinProof::Zkp(_proof) => {
+                        // TOOD zkp join.
+                    }
                 }
             }
-
-            LayerEvent::OnlinePong(gcd) => {
-                self.add_member(&gcd, fmid, addr);
-
-                let new_data = postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, fmid, addr))
-                    .map_err(|_| new_io_error("serialize event error."))?;
-                for (mid, maddr) in self.groups(&gcd)? {
-                    let s = SendType::Event(0, *maddr, new_data.clone());
-                    add_layer(results, *mid, s);
-                }
+            LayerEvent::RequestResult(_gcd, _ok) => {
+                // TODO
             }
             LayerEvent::Sync(gcd, _, event) => {
                 println!("Start handle Event.");
@@ -399,6 +365,10 @@ impl Layer {
                     println!("Sended sync request results. from: {}, to: {}", from, to);
                 }
             }
+            LayerEvent::CheckResult(..) => {}   // Nerver here.
+            LayerEvent::CreateResult(..) => {}  // Nerver here.
+            LayerEvent::Agree(..) => {}         // Nerver here.
+            LayerEvent::Reject(..) => {}        // Nerver here.
             LayerEvent::Packed(..) => {}        // Nerver here.
             LayerEvent::MemberOnline(..) => {}  // Nerver here.
             LayerEvent::MemberOffline(..) => {} // Never here.
@@ -539,7 +509,7 @@ impl Layer {
         addr: PeerAddr,
         results: &mut HandleResult,
     ) {
-        let res = GroupResult::Join(gcd, true, height);
+        let res = LayerResult(gcd, height);
         let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
         let s = SendType::Result(0, addr, true, false, data);
         add_layer(results, gid, s);
@@ -555,9 +525,9 @@ impl Layer {
     ) -> Result<()> {
         let gavatar = vec![]; // TOOD load group avatar.
         let group_info = group.to_group_info(gavatar);
-        let res = GroupResult::Agree(gcd, group_info);
+        let res = LayerEvent::Agree(gcd, group_info);
         let d = postcard::to_allocvec(&res).unwrap_or(vec![]);
-        let s = SendType::Result(0, addr, true, false, d);
+        let s = SendType::Event(0, addr, d);
         add_layer(results, gid, s);
         Ok(())
     }
