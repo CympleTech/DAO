@@ -15,8 +15,8 @@ pub enum GroupType {
     /// encrypted group type, data is encrypted, and it can need manager
     /// or take manager's zero-knowledge-proof.
     Encrypted,
-    /// common group type, data not encrypted, and need group manager agree.
-    Common,
+    /// private group type, data not encrypted, and need group manager agree.
+    Private,
     /// opened group type, data not encrypted, anyone can join this group.
     Open,
 }
@@ -25,7 +25,7 @@ impl GroupType {
     pub fn to_u32(&self) -> u32 {
         match self {
             GroupType::Encrypted => 0,
-            GroupType::Common => 1,
+            GroupType::Private => 1,
             GroupType::Open => 2,
         }
     }
@@ -33,7 +33,7 @@ impl GroupType {
     pub fn from_u32(u: u32) -> Self {
         match u {
             0 => GroupType::Encrypted,
-            1 => GroupType::Common,
+            1 => GroupType::Private,
             2 => GroupType::Open,
             _ => GroupType::Encrypted,
         }

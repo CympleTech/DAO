@@ -135,7 +135,7 @@ impl Layer {
                 // TODO
             }
             LayerEvent::Check => {
-                let supported = vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
+                let supported = vec![GroupType::Encrypted, GroupType::Private, GroupType::Open];
                 let res = if let Some((is_closed, limit)) = self.managers.get(&fmid) {
                     if *is_closed {
                         LayerEvent::CheckResult(CheckType::Suspend, supported)
@@ -152,7 +152,7 @@ impl Layer {
                 add_layer(results, fmid, s);
             }
             LayerEvent::Create(info, _proof) => {
-                let supported = vec![GroupType::Encrypted, GroupType::Common, GroupType::Open];
+                let supported = vec![GroupType::Encrypted, GroupType::Private, GroupType::Open];
                 let (res, ok) = if let Some((is_closed, limit)) = self.managers.get(&fmid) {
                     if !*is_closed && *limit > 0 {
                         // TODO check proof.
