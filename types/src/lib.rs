@@ -159,8 +159,8 @@ pub enum LayerEvent {
     Reject(GroupId),
     /// online group member. GroupId, member, address.
     MemberOnline(GroupId, GroupId, PeerAddr),
-    /// offline group member. GroupId, member, address.
-    MemberOffline(GroupId, GroupId, PeerAddr),
+    /// offline group member. GroupId, member.
+    MemberOffline(GroupId, GroupId),
     /// sync group event. GroupId, height, event.
     Sync(GroupId, i64, Event),
     /// packed sync event request. GroupId, from.

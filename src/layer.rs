@@ -80,7 +80,7 @@ impl Layer {
                 for (g, (members, _, _)) in self.groups.iter_mut() {
                     if let Some(pos) = members.iter().position(|(_, x)| x == &addr) {
                         let (mid, addr) = members.remove(pos);
-                        let data = postcard::to_allocvec(&LayerEvent::MemberOffline(*g, mid, addr))
+                        let data = postcard::to_allocvec(&LayerEvent::MemberOffline(*g, mid))
                             .map_err(|_| new_io_error("serialize event error."))?;
                         for (mid, maddr) in members {
                             let s = SendType::Event(0, *maddr, data.clone());
@@ -120,7 +120,7 @@ impl Layer {
                 }
                 self.del_member(&gcd, &fmid);
 
-                let new_data = postcard::to_allocvec(&LayerEvent::MemberOffline(gcd, fmid, addr))
+                let new_data = postcard::to_allocvec(&LayerEvent::MemberOffline(gcd, fmid))
                     .map_err(|_| new_io_error("serialize event error."))?;
 
                 for (mid, maddr) in self.groups(&gcd)? {
