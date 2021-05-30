@@ -169,6 +169,40 @@ impl GroupChat {
 }
 
 /// Group Member Model.
+pub(crate) struct Request {
+    /// db auto-increment id.
+    pub id: i64,
+    /// group's db id.
+    pub fid: i64,
+    /// member's Did(encrypted/not-encrytped)
+    pub m_id: GroupId,
+    /// member's addresse.
+    pub m_addr: PeerAddr,
+    /// member's name.
+    pub m_name: String,
+    /// member's joined time.
+    pub datetime: i64,
+}
+
+impl Request {
+    pub fn new() -> Request {
+        todo!()
+    }
+
+    pub fn to_member(self) -> Member {
+        todo!()
+    }
+
+    pub async fn get(id: &i64) -> Result<Request> {
+        todo!()
+    }
+
+    pub async fn insert(&mut self) -> Result<()> {
+        todo!()
+    }
+}
+
+/// Group Member Model.
 pub(crate) struct Member {
     /// db auto-increment id.
     pub id: i64,
@@ -209,6 +243,10 @@ impl Member {
             is_manager,
             id: 0,
         }
+    }
+
+    pub async fn avatar(&self) -> Vec<u8> {
+        vec![] // TOOD
     }
 
     pub async fn insert(&mut self) -> Result<()> {

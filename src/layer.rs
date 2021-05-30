@@ -10,7 +10,7 @@ use group_chat_types::{
     LayerResult, GROUP_CHAT_ID,
 };
 
-use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message};
+use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message, Request};
 
 /// Group chat server to ESSE.
 #[inline]
@@ -20,7 +20,8 @@ pub fn add_layer(results: &mut HandleResult, gid: GroupId, msg: SendType) {
 
 pub(crate) struct Layer {
     managers: HashMap<GroupId, (bool, i32)>,
-    groups: HashMap<GroupId, (Vec<(GroupId, PeerAddr)>, i64, i64)>,
+    /// running groups, with members info.
+    groups: HashMap<GroupId, (Vec<(GroupId, PeerAddr, bool)>, i64, i64)>,
 }
 
 impl Layer {
@@ -62,7 +63,7 @@ impl Layer {
                             let new_data =
                                 postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, gid, addr))
                                     .map_err(|_| new_io_error("serialize event error."))?;
-                            for (mid, maddr) in self.groups(&gcd)? {
+                            for (mid, maddr, _) in self.groups(&gcd)? {
                                 let s = SendType::Event(0, *maddr, new_data.clone());
                                 add_layer(&mut results, *mid, s);
                             }
@@ -78,11 +79,11 @@ impl Layer {
             }
             RecvType::Leave(addr) => {
                 for (g, (members, _, _)) in self.groups.iter_mut() {
-                    if let Some(pos) = members.iter().position(|(_, x)| x == &addr) {
-                        let (mid, addr) = members.remove(pos);
+                    if let Some(pos) = members.iter().position(|(_, x, _)| x == &addr) {
+                        let (mid, addr, _) = members.remove(pos);
                         let data = postcard::to_allocvec(&LayerEvent::MemberOffline(*g, mid))
                             .map_err(|_| new_io_error("serialize event error."))?;
-                        for (mid, maddr) in members {
+                        for (mid, maddr, _) in members {
                             let s = SendType::Event(0, *maddr, data.clone());
                             add_layer(&mut results, *mid, s);
                         }
@@ -123,7 +124,7 @@ impl Layer {
                 let new_data = postcard::to_allocvec(&LayerEvent::MemberOffline(gcd, fmid))
                     .map_err(|_| new_io_error("serialize event error."))?;
 
-                for (mid, maddr) in self.groups(&gcd)? {
+                for (mid, maddr, _) in self.groups(&gcd)? {
                     let s = SendType::Event(0, *maddr, new_data.clone());
                     add_layer(results, *mid, s);
                 }
@@ -206,12 +207,12 @@ impl Layer {
                 match join_proof {
                     JoinProof::Open(mname, mavatar) => {
                         let fid = self.fid(&gcd)?;
-
                         let group = GroupChat::get_id(&fid).await?;
+
                         // check is member.
                         if Member::exist(fid, &fmid).await? {
                             self.add_member(&gcd, fmid, addr);
-                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                            self.agree(gcd, fmid, addr, group, results).await?;
                             return Ok(());
                         }
 
@@ -225,59 +226,46 @@ impl Layer {
                             self.broadcast_join(&gcd, m, mavatar, results).await?;
 
                             // return join result.
-                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                            self.agree(gcd, fmid, addr, group, results).await?;
                         } else {
-                            // TODO add member request.
+                            Self::reject(gcd, fmid, addr, false, results);
                         }
                     }
-                    JoinProof::Link(link_gid, mname, mavatar) => {
+                    JoinProof::Invite(invite_gid, proof, mname, mavatar) => {
                         let fid = self.fid(&gcd)?;
-
-                        let group = GroupChat::get_id(&fid).await?;
-                        // check is member.
-                        if Member::exist(fid, &fmid).await? {
-                            self.add_member(&gcd, fmid, addr);
-                            self.agree_join(gcd, fmid, addr, group, results).await?;
-                            return Ok(());
-                        }
-
-                        if !Member::exist(fid, &link_gid).await? {
-                            // TODO add join result invite url lose efficacy.
-                            return Ok(());
-                        }
-
-                        if group.is_need_agree {
-                            // TODO add member request.
-                        } else {
-                            let mut m = Member::new(*fid, fmid, addr, mname, false);
-                            m.insert().await?;
-
-                            // TOOD save avatar.
-
-                            self.add_member(&gcd, fmid, addr);
-                            self.broadcast_join(&gcd, m, mavatar, results).await?;
-
-                            // return join result.
-                            self.agree_join(gcd, fmid, addr, group, results).await?;
-                        }
-                    }
-                    JoinProof::Invite(invite_gid, _proof, mname, mavatar) => {
-                        let fid = self.fid(&gcd)?;
-
                         let group = GroupChat::get_id(fid).await?;
+
                         // check is member.
                         if Member::exist(fid, &fmid).await? {
                             self.add_member(&gcd, fmid, addr);
-                            self.agree_join(gcd, fmid, addr, group, results).await?;
+                            self.agree(gcd, fmid, addr, group, results).await?;
                             return Ok(());
                         }
 
-                        if !Member::is_manager(fid, &invite_gid).await? {
-                            // TODO add join result invite url lose efficacy.
+                        // TODO check if request had or is blocked by manager.
+
+                        // check if inviter is member.
+                        if !Member::exist(fid, &invite_gid).await? {
+                            Self::reject(gcd, fmid, addr, true, results);
                             return Ok(());
                         }
 
                         // TODO check proof.
+                        // proof.verify(&invite_gid, &addr, &layer.addr)?;
+
+                        if group.is_need_agree {
+                            if !Member::is_manager(fid, &invite_gid).await? {
+                                let mut request = Request::new();
+                                request.insert().await?;
+                                self.broadcast_request(
+                                    &gcd,
+                                    request,
+                                    JoinProof::Invite(invite_gid, proof, mname, mavatar),
+                                    results,
+                                );
+                                return Ok(());
+                            }
+                        }
 
                         let mut m = Member::new(*fid, fmid, addr, mname, false);
                         m.insert().await?;
@@ -288,15 +276,36 @@ impl Layer {
                         self.broadcast_join(&gcd, m, mavatar, results).await?;
 
                         // return join result.
-                        self.agree_join(gcd, fmid, addr, group, results).await?;
+                        self.agree(gcd, fmid, addr, group, results).await?;
                     }
                     JoinProof::Zkp(_proof) => {
                         // TOOD zkp join.
                     }
                 }
             }
-            LayerEvent::RequestResult(_gcd, _ok) => {
-                // TODO
+            LayerEvent::RequestResult(gcd, rid, ok) => {
+                let fid = self.fid(&gcd)?;
+
+                if Member::is_manager(fid, &fmid).await? {
+                    let request = Request::get(&rid).await?;
+                    if &request.fid == fid {
+                        if ok {
+                            let group = GroupChat::get_id(fid).await?;
+
+                            let mut m = request.to_member();
+                            m.insert().await?;
+
+                            self.add_member(&gcd, m.m_id, m.m_addr);
+                            self.agree(gcd, m.m_id, m.m_addr, group, results).await?;
+
+                            let mavatar = m.avatar().await;
+                            self.broadcast_join(&gcd, m, mavatar, results).await?;
+                        } else {
+                            Self::reject(gcd, request.m_id, request.m_addr, true, results);
+                        }
+                    }
+                    self.broadcast_request_result(&gcd, rid, ok, results);
+                }
             }
             LayerEvent::Sync(gcd, _, event) => {
                 println!("Start handle Event.");
@@ -343,7 +352,7 @@ impl Layer {
                 println!("Event broadcast");
                 let new_data = postcard::to_allocvec(&LayerEvent::Sync(gcd, height, event))
                     .map_err(|_| new_io_error("serialize event error."))?;
-                for (mid, maddr) in self.groups(&gcd)? {
+                for (mid, maddr, _) in self.groups(&gcd)? {
                     let s = SendType::Event(0, *maddr, new_data.clone());
                     add_layer(results, *mid, s);
                 }
@@ -367,6 +376,7 @@ impl Layer {
             }
             LayerEvent::CheckResult(..) => {}   // Nerver here.
             LayerEvent::CreateResult(..) => {}  // Nerver here.
+            LayerEvent::RequestHandle(..) => {} // Nerver here.
             LayerEvent::Agree(..) => {}         // Nerver here.
             LayerEvent::Reject(..) => {}        // Nerver here.
             LayerEvent::Packed(..) => {}        // Nerver here.
@@ -398,7 +408,7 @@ impl Layer {
             .ok_or(new_io_error("Group missing"))
     }
 
-    fn groups(&self, gid: &GroupId) -> Result<&Vec<(GroupId, PeerAddr)>> {
+    fn groups(&self, gid: &GroupId) -> Result<&Vec<(GroupId, PeerAddr, bool)>> {
         self.groups
             .get(gid)
             .map(|v| &v.0)
@@ -414,7 +424,7 @@ impl Layer {
     }
 
     pub fn create_group(&mut self, id: i64, gid: GroupId, rid: GroupId, raddr: PeerAddr) {
-        self.groups.insert(gid, (vec![(rid, raddr)], 0, id));
+        self.groups.insert(gid, (vec![(rid, raddr, true)], 0, id));
     }
 
     pub async fn add_height(
@@ -438,19 +448,19 @@ impl Layer {
 
     pub fn add_member(&mut self, gid: &GroupId, rid: GroupId, raddr: PeerAddr) {
         if let Some((members, _, _)) = self.groups.get_mut(gid) {
-            for (mid, maddr) in members.iter_mut() {
+            for (mid, maddr, is_m) in members.iter_mut() {
                 if *mid == rid {
                     *maddr = raddr;
                     return;
                 }
             }
-            members.push((rid, raddr));
+            members.push((rid, raddr, false));
         }
     }
 
     pub fn del_member(&mut self, gid: &GroupId, rid: &GroupId) {
         if let Some((members, _, _)) = self.groups.get_mut(gid) {
-            if let Some(pos) = members.iter().position(|(mid, _)| mid == rid) {
+            if let Some(pos) = members.iter().position(|(mid, _, _)| mid == rid) {
                 members.remove(pos);
             }
         }
@@ -458,7 +468,7 @@ impl Layer {
 
     pub fn is_online_addr(&self, gid: &GroupId, addr: &PeerAddr) -> bool {
         if let Some((members, _, _)) = self.groups.get(gid) {
-            for (_, maddr) in members {
+            for (_, maddr, _) in members {
                 if maddr == addr {
                     return true;
                 }
@@ -492,7 +502,7 @@ impl Layer {
             postcard::to_allocvec(&LayerEvent::Sync(*gcd, height, event)).unwrap_or(vec![]);
 
         if let Some((members, _, _)) = self.groups.get(gcd) {
-            for (mid, maddr) in members {
+            for (mid, maddr, _) in members {
                 let s = SendType::Event(0, *maddr, new_data.clone());
                 add_layer(results, *mid, s);
             }
@@ -500,6 +510,55 @@ impl Layer {
         println!("over broadcast join...");
 
         Ok(())
+    }
+
+    fn broadcast_request(
+        &self,
+        gcd: &GroupId,
+        request: Request,
+        join: JoinProof,
+        results: &mut HandleResult,
+    ) {
+        println!("start broadcast request...");
+        let event = LayerEvent::RequestHandle(
+            *gcd,
+            request.m_id,
+            request.m_addr,
+            join,
+            request.id,
+            request.datetime,
+        );
+        let new_data = postcard::to_allocvec(&event).unwrap_or(vec![]);
+
+        if let Some((members, _, _)) = self.groups.get(gcd) {
+            for (mid, maddr, is_m) in members {
+                if *is_m {
+                    let s = SendType::Event(0, *maddr, new_data.clone());
+                    add_layer(results, *mid, s);
+                }
+            }
+        }
+    }
+
+    fn broadcast_request_result(
+        &self,
+        gcd: &GroupId,
+        rid: i64,
+        ok: bool,
+        results: &mut HandleResult,
+    ) {
+        println!("start broadcast request result...");
+        let new_data =
+            postcard::to_allocvec(&LayerEvent::RequestResult(*gcd, rid, ok)).unwrap_or(vec![]);
+
+        if let Some((members, _, _)) = self.groups.get(gcd) {
+            for (mid, maddr, is_m) in members {
+                if *is_m {
+                    let s = SendType::Event(0, *maddr, new_data.clone());
+                    add_layer(results, *mid, s);
+                }
+            }
+        }
     }
 
     fn had_join(
@@ -515,7 +574,7 @@ impl Layer {
         add_layer(results, gid, s);
     }
 
-    async fn agree_join(
+    async fn agree(
         &self,
         gcd: GroupId,
         gid: GroupId,
@@ -530,5 +589,10 @@ impl Layer {
         let s = SendType::Event(0, addr, d);
         add_layer(results, gid, s);
         Ok(())
+    }
+
+    fn reject(gcd: GroupId, gid: GroupId, addr: PeerAddr, lost: bool, res: &mut HandleResult) {
+        let d = postcard::to_allocvec(&LayerEvent::Reject(gcd, lost)).unwrap_or(vec![]);
+        add_layer(res, gid, SendType::Event(0, addr, d));
     }
 }

@@ -94,9 +94,6 @@ pub enum JoinProof {
     /// when join the open group chat.
     /// params: member name, member avatar.
     Open(String, Vec<u8>),
-    /// when is join by a link/qrcode, it has not proof. it will check group_type.
-    /// params: link_by_account, member name, member avatar.
-    Link(GroupId, String, Vec<u8>),
     /// when is invate, it will take group_manager's proof for invate.
     /// params: invite_by_account, invite_proof, member name, member avatar.
     Invite(GroupId, Proof, String, Vec<u8>),
@@ -149,14 +146,16 @@ pub enum LayerEvent {
     /// result create group success.
     /// params: Group_ID, is_ok.
     CreateResult(GroupId, bool),
-    /// join group request.
+    /// join group request. Group ID, Join Proof and info, request db id.
     Request(GroupId, JoinProof),
-    /// manager handle request result.
-    RequestResult(GroupId, bool),
+    /// request need manager to handle.
+    RequestHandle(GroupId, GroupId, PeerAddr, JoinProof, i64, i64),
+    /// manager handle request result. Group ID, request db id, is ok.
+    RequestResult(GroupId, i64, bool),
     /// agree join request.
     Agree(GroupId, GroupInfo),
-    /// reject join request.
-    Reject(GroupId),
+    /// reject join request. Group_ID, if lost efficacy.
+    Reject(GroupId, bool),
     /// online group member. GroupId, member, address.
     MemberOnline(GroupId, GroupId, PeerAddr),
     /// offline group member. GroupId, member.
