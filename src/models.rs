@@ -352,6 +352,7 @@ pub(crate) enum MessageType {
     Record,
     Phone,
     Video,
+    Invite,
 }
 
 impl MessageType {
@@ -365,6 +366,7 @@ impl MessageType {
             MessageType::Record => 5,
             MessageType::Phone => 6,
             MessageType::Video => 7,
+            MessageType::Invite => 8,
         }
     }
 
@@ -378,6 +380,7 @@ impl MessageType {
             5 => MessageType::Record,
             6 => MessageType::Phone,
             7 => MessageType::Video,
+            8 => MessageType::Invite,
             _ => MessageType::String,
         }
     }
@@ -450,6 +453,10 @@ impl Message {
                 // TODO
                 (MessageType::Video, "".to_owned())
             }
+            NetworkMessage::Invite(content) => {
+                // TODO
+                (MessageType::Invite, content.to_owned())
+            }
             NetworkMessage::None => (MessageType::String, "".to_owned()),
         };
 
@@ -507,6 +514,7 @@ impl Message {
             MessageType::Emoji => Ok(NetworkMessage::Emoji),
             MessageType::Phone => Ok(NetworkMessage::Phone),
             MessageType::Video => Ok(NetworkMessage::Video),
+            MessageType::Invite => Ok(NetworkMessage::Invite(self.m_content)),
         }
     }
 

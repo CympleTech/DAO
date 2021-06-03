@@ -215,5 +215,6 @@ pub enum NetworkMessage {
     Emoji,
     Phone,
     Video,
+    Invite(String),
     None,
 }
