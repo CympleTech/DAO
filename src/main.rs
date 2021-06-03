@@ -66,7 +66,7 @@ pub async fn start(db_path: String) -> Result<()> {
     let (peer_id, sender, recver) = start_with_config(config).await.unwrap();
     info!("Network Peer id : {}", peer_id.to_hex());
 
-    let layer = Arc::new(RwLock::new(layer::Layer::new().await?));
+    let layer = Arc::new(RwLock::new(layer::Layer::new(db_path).await?));
 
     let rpc_handler = rpc::new_rpc_handler(peer_id, layer.clone());
 

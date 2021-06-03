@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tdn::types::{
     group::GroupId,
@@ -6,7 +7,10 @@ use tdn::types::{
 
 use group_chat_types::{GroupInfo, GroupType, NetworkMessage, PackedEvent};
 
-use crate::storage::get_pool;
+use crate::storage::{
+    get_pool, read_avatar, read_file, read_image, read_record, write_avatar, write_file,
+    write_image, write_record,
+};
 
 /// Group Chat Model.
 pub(crate) struct GroupChat {
@@ -245,10 +249,6 @@ impl Member {
         }
     }
 
-    pub async fn avatar(&self) -> Vec<u8> {
-        vec![] // TOOD
-    }
-
     pub async fn insert(&mut self) -> Result<()> {
         let rec = sqlx::query!(
             "INSERT INTO members (fid, m_id, m_addr, m_name, is_manager, datetime) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
@@ -404,6 +404,7 @@ pub(crate) struct Message {
 
 impl Message {
     pub async fn from_network_message(
+        base: &PathBuf,
         gcd: &GroupId,
         fid: &i64,
         m_id: &GroupId,
@@ -421,17 +422,15 @@ impl Message {
         let (m_type, raw) = match msg {
             NetworkMessage::String(content) => (MessageType::String, content.to_owned()),
             NetworkMessage::Image(bytes) => {
-                //let image_name = write_image_sync(&base, &mgid, bytes)?;
-                let image_name = "".to_owned();
+                let image_name = write_image(base, &gcd, bytes).await?;
                 (MessageType::Image, image_name)
             }
             NetworkMessage::File(old_name, bytes) => {
-                //let filename = write_file_sync(&base, &mgid, &old_name, bytes)?;
-                let filename = "".to_owned();
+                let filename = write_file(base, &gcd, &old_name, bytes).await?;
                 (MessageType::File, filename)
             }
             NetworkMessage::Contact(name, rgid, addr, avatar_bytes) => {
-                //write_avatar_sync(&base, &mgid, &rgid, avatar_bytes)?;
+                write_avatar(base, gcd, &rgid, avatar_bytes).await?;
                 let tmp_name = name.replace(";", "-;");
                 let contact_values = format!("{};;{};;{}", tmp_name, rgid.to_hex(), addr.to_hex());
                 (MessageType::Contact, contact_values)
@@ -441,8 +440,7 @@ impl Message {
                 (MessageType::Emoji, "".to_owned())
             }
             NetworkMessage::Record(bytes, time) => {
-                //let record_name = write_record_sync(&base, &mgid, gdid, time, bytes)?;
-                let record_name = "".to_owned();
+                let record_name = write_record(base, &gcd, fid, time, bytes).await?;
                 (MessageType::Record, record_name)
             }
             NetworkMessage::Phone => {
@@ -453,10 +451,7 @@ impl Message {
                 // TODO
                 (MessageType::Video, "".to_owned())
             }
-            NetworkMessage::Invite(content) => {
-                // TODO
-                (MessageType::Invite, content.to_owned())
-            }
+            NetworkMessage::Invite(content) => (MessageType::Invite, content.to_owned()),
             NetworkMessage::None => (MessageType::String, "".to_owned()),
         };
 
@@ -472,21 +467,18 @@ impl Message {
         Ok(rec.id)
     }
 
-    async fn to_network_message(self) -> Result<NetworkMessage> {
+    async fn to_network_message(self, base: &PathBuf, gcd: &GroupId) -> Result<NetworkMessage> {
         match self.m_type {
             MessageType::String => Ok(NetworkMessage::String(self.m_content)),
             MessageType::Image => {
-                // TODO
-                let image_avatar = vec![];
-                Ok(NetworkMessage::Image(image_avatar))
+                let bytes = read_image(base, gcd, &self.m_content).await?;
+                Ok(NetworkMessage::Image(bytes))
             }
             MessageType::File => {
-                // TODO
-                let file = vec![];
-                Ok(NetworkMessage::File(self.m_content, file))
+                let bytes = read_file(base, gcd, &self.m_content).await?;
+                Ok(NetworkMessage::File(self.m_content, bytes))
             }
             MessageType::Contact => {
-                //TODO
                 let v: Vec<&str> = self.m_content.split(";;").collect();
                 if v.len() != 3 {
                     Ok(NetworkMessage::None)
@@ -494,7 +486,7 @@ impl Message {
                     let cname = v[0].to_owned();
                     let cgid = GroupId::from_hex(v[1])?;
                     let caddr = PeerAddr::from_hex(v[2])?;
-                    // TODO
+                    let avatar_bytes = read_avatar(base, gcd, &cgid).await?;
                     let avatar = vec![];
                     Ok(NetworkMessage::Contact(cname, cgid, caddr, avatar))
                 }
@@ -502,8 +494,7 @@ impl Message {
             MessageType::Record => {
                 let (bytes, time) = if let Some(i) = self.m_content.find('-') {
                     let time = self.m_content[0..i].parse().unwrap_or(0);
-                    // TOOD
-                    // let bytes = read_record_sync(base, gid, &model.content[i + 1..])?;
+                    let bytes = read_record(base, gcd, &self.m_content[i + 1..]).await?;
                     let bytes = vec![];
                     (bytes, time)
                 } else {
@@ -664,7 +655,13 @@ pub(crate) struct Consensus {
 }
 
 impl Consensus {
-    pub async fn pack(fid: &i64, from: &i64, to: &i64) -> Result<Vec<PackedEvent>> {
+    pub async fn pack(
+        base: &PathBuf,
+        gcd: &GroupId,
+        fid: &i64,
+        from: &i64,
+        to: &i64,
+    ) -> Result<Vec<PackedEvent>> {
         let recs =
             sqlx::query!("SELECT id, fid, height, ctype, cid FROM consensus WHERE fid = $1 AND height BETWEEN $2 AND $3", fid, from, to)
             .fetch_all(get_pool()?)
@@ -708,7 +705,7 @@ impl Consensus {
                     let m = Message::get_id(&res.cid).await?;
                     let datetime = m.datetime;
                     let mem = Member::get_id(&m.mid).await?;
-                    let nmsg = m.to_network_message().await?;
+                    let nmsg = m.to_network_message(base, gcd).await?;
                     packed.push(PackedEvent::MessageCreate(mem.m_id, nmsg, datetime))
                 }
                 ConsensusType::None => {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tdn::types::{
     group::GroupId,
     message::{RecvType, SendType},
@@ -11,6 +12,7 @@ use group_chat_types::{
 };
 
 use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message, Request};
+use crate::storage::{init_local_files, read_avatar, write_avatar};
 
 /// Group chat server to ESSE.
 #[inline]
@@ -19,13 +21,15 @@ pub fn add_layer(results: &mut HandleResult, gid: GroupId, msg: SendType) {
 }
 
 pub(crate) struct Layer {
-    managers: HashMap<GroupId, (bool, i32)>,
+    base: PathBuf,
+    /// managers that can created group chat here.
+    managers: HashMap<GroupId, (bool, i32)>, // TODO need deleted.
     /// running groups, with members info.
     groups: HashMap<GroupId, (Vec<(GroupId, PeerAddr, bool)>, i64, i64)>,
 }
 
 impl Layer {
-    pub(crate) async fn new() -> Result<Layer> {
+    pub(crate) async fn new(base: PathBuf) -> Result<Layer> {
         // load managers
         let ms = Manager::all().await?;
         let mut managers = HashMap::new();
@@ -40,7 +44,11 @@ impl Layer {
             groups.insert(group.g_id, (vec![], group.height, group.id));
         }
 
-        Ok(Layer { managers, groups })
+        Ok(Layer {
+            base,
+            managers,
+            groups,
+        })
     }
 
     pub(crate) async fn handle(&mut self, gid: GroupId, msg: RecvType) -> Result<HandleResult> {
@@ -166,14 +174,15 @@ impl Layer {
                                 need_agree,
                                 name,
                                 bio,
-                                _avatar,
+                                avatar,
                             ) => {
                                 let mut gc =
                                     GroupChat::new(owner, gcd, gt, name, bio, need_agree, vec![]);
 
                                 gc.insert().await?;
 
-                                // TODO save avatar.
+                                let _ = init_local_files(&self.base, &gc.g_id).await;
+                                let _ = write_avatar(&self.base, &gc.g_id, &gc.g_id, &avatar).await;
 
                                 // add frist member.
                                 let mut mem = Member::new(gc.id, fmid, addr, m_name, true);
@@ -220,7 +229,8 @@ impl Layer {
                             let mut m = Member::new(*fid, fmid, addr, mname, false);
                             m.insert().await?;
 
-                            // TOOD save avatar.
+                            // save avatar.
+                            let _ = write_avatar(&self.base, &gcd, &m.m_id, &mavatar).await;
 
                             self.add_member(&gcd, fmid, addr);
                             self.broadcast_join(&gcd, m, mavatar, results).await?;
@@ -270,7 +280,8 @@ impl Layer {
                         let mut m = Member::new(*fid, fmid, addr, mname, false);
                         m.insert().await?;
 
-                        // TOOD save avatar.
+                        // save avatar.
+                        let _ = write_avatar(&self.base, &gcd, &m.m_id, &mavatar).await;
 
                         self.add_member(&gcd, fmid, addr);
                         self.broadcast_join(&gcd, m, mavatar, results).await?;
@@ -298,7 +309,7 @@ impl Layer {
                             self.add_member(&gcd, m.m_id, m.m_addr);
                             self.agree(gcd, m.m_id, m.m_addr, group, results).await?;
 
-                            let mavatar = m.avatar().await;
+                            let mavatar = read_avatar(&self.base, &gcd, &fmid).await?;
                             self.broadcast_join(&gcd, m, mavatar, results).await?;
                         } else {
                             Self::reject(gcd, request.m_id, request.m_addr, true, results);
@@ -342,7 +353,8 @@ impl Layer {
                         (0, ConsensusType::MemberLeave)
                     }
                     Event::MessageCreate(mid, nmsg, _) => {
-                        let id = Message::from_network_message(&gcd, fid, mid, nmsg).await?;
+                        let id =
+                            Message::from_network_message(&self.base, &gcd, fid, mid, nmsg).await?;
                         (id, ConsensusType::MessageCreate)
                     }
                     Event::MemberJoin(..) => return Ok(()), // Never here.
@@ -366,7 +378,7 @@ impl Layer {
                     } else {
                         height
                     };
-                    let packed = Consensus::pack(&fid, &from, &to).await?;
+                    let packed = Consensus::pack(&self.base, &gcd, &fid, &from, &to).await?;
                     let event = LayerEvent::Packed(gcd, height, from, to, packed);
                     let data = postcard::to_allocvec(&event).unwrap_or(vec![]);
                     let s = SendType::Event(0, addr, data);
