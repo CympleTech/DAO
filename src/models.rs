@@ -73,7 +73,8 @@ impl GroupChat {
         match self.g_type {
             GroupType::Private | GroupType::Open => GroupInfo::Common(
                 self.owner,
-                "".to_owned(), // no-need.
+                "".to_owned(), // no-need. because in member.
+                vec![],        // owner avatar no-need. because in member.
                 self.g_id,
                 self.g_type,
                 self.is_need_agree,
@@ -84,7 +85,8 @@ impl GroupChat {
             GroupType::Encrypted => GroupInfo::Common(
                 // TODO decode.
                 self.owner,
-                "".to_owned(), // no-need.
+                "".to_owned(), // no-need. because in member.
+                vec![],        // owner avatar no-need. because in member.
                 self.g_id,
                 self.g_type,
                 self.is_need_agree,
@@ -304,7 +306,7 @@ impl Member {
 
     pub async fn get(fid: &i64, gid: &GroupId) -> Result<Member> {
         let rec = sqlx::query!(
-            "SELECT id, fid, m_id, m_addr, m_name, is_manager, datetime FROM members WHERE fid = $1 and m_id = $2",
+            "SELECT id, fid, m_id, m_addr, m_name, is_manager, datetime FROM members WHERE fid = $1 AND m_id = $2 AND is_deleted = false",
             fid,
             gid.to_hex(),
         )
@@ -323,9 +325,21 @@ impl Member {
         })
     }
 
+    pub async fn leave(&self) -> Result<()> {
+        let _ = sqlx::query!(
+            "UPDATE members SET is_deleted = true WHERE id = $1",
+            self.id
+        )
+        .execute(get_pool()?)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
+
+        Ok(())
+    }
+
     pub async fn is_manager(fid: &i64, mid: &GroupId) -> Result<bool> {
         let recs = sqlx::query!(
-            "SELECT is_deleted, is_manager FROM members WHERE fid = $1 and m_id = $2",
+            "SELECT is_deleted, is_manager FROM members WHERE fid = $1 AND m_id = $2",
             fid,
             mid.to_hex()
         )

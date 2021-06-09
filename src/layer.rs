@@ -168,7 +168,8 @@ impl Layer {
                         let gcd = match info {
                             GroupInfo::Common(
                                 owner,
-                                m_name,
+                                owner_name,
+                                owner_avatar,
                                 gcd,
                                 gt,
                                 need_agree,
@@ -185,8 +186,12 @@ impl Layer {
                                 let _ = write_avatar(&self.base, &gc.g_id, &gc.g_id, &avatar).await;
 
                                 // add frist member.
-                                let mut mem = Member::new(gc.id, fmid, addr, m_name, true);
+                                let mut mem = Member::new(gc.id, owner, addr, owner_name, true);
                                 mem.insert().await?;
+                                // save member avatar.
+                                let _ =
+                                    write_avatar(&self.base, &gc.g_id, &mem.m_id, &owner_avatar)
+                                        .await;
                                 println!("add member ok");
 
                                 self.create_group(gc.id, gcd, fmid, addr);
@@ -345,12 +350,14 @@ impl Layer {
                         (0, ConsensusType::GroupClose)
                     }
                     Event::MemberInfo(mid, maddr, mname, mavatar) => {
+                        let member = Member::get(fid, mid).await?;
                         // TODO
-                        (0, ConsensusType::MemberInfo)
+                        (member.id, ConsensusType::MemberInfo)
                     }
                     Event::MemberLeave(mid) => {
-                        // TODO
-                        (0, ConsensusType::MemberLeave)
+                        let member = Member::get(fid, mid).await?;
+                        member.leave().await?;
+                        (member.id, ConsensusType::MemberLeave)
                     }
                     Event::MessageCreate(mid, nmsg, _) => {
                         let id =
@@ -594,7 +601,7 @@ impl Layer {
         group: GroupChat,
         results: &mut HandleResult,
     ) -> Result<()> {
-        let gavatar = vec![]; // TOOD load group avatar.
+        let gavatar = read_avatar(&self.base, &gcd, &gcd).await?;
         let group_info = group.to_group_info(gavatar);
         let res = LayerEvent::Agree(gcd, group_info);
         let d = postcard::to_allocvec(&res).unwrap_or(vec![]);

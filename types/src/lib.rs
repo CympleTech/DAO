@@ -43,11 +43,12 @@ impl GroupType {
 /// GroupInfo transfer in the network.
 #[derive(Serialize, Deserialize)]
 pub enum GroupInfo {
-    /// params: owner, owner_name, Group_ID, group_type, is_must_agree_by_manager,
+    /// params: owner, owner_name, owner_avatar, Group_ID, group_type, is_must_agree_by_manager,
     /// group_name, group_bio, group_avatar.
     Common(
         GroupId,
         String,
+        Vec<u8>,
         GroupId,
         GroupType,
         bool,
@@ -55,11 +56,12 @@ pub enum GroupInfo {
         String,
         Vec<u8>,
     ),
-    /// params: owner, owner_name, Group_ID, is_must_agree_by_manager, key_hash,
+    /// params: owner, owner_name, owner_avatar, Group_ID, is_must_agree_by_manager, key_hash,
     /// group_name(bytes), group_bio(bytes), group_avatar(bytes).
     Encrypted(
         GroupId,
         String,
+        Vec<u8>,
         GroupId,
         bool,
         Vec<u8>,
