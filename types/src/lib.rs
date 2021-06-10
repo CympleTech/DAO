@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tdn_did::Proof;
 use tdn_types::{group::GroupId, primitive::PeerAddr};
 
+/// Group chat app(service) default TDN GROUP ID.
 #[rustfmt::skip]
 pub const GROUP_CHAT_ID: GroupId = GroupId([
     0, 0, 0, 0, 0, 0, 0, 0,
@@ -10,6 +11,7 @@ pub const GROUP_CHAT_ID: GroupId = GroupId([
     0, 0, 0, 0, 0, 0, 0, 2,
 ]);
 
+/// Group chat types. include: Encrypted, Private, Open.
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum GroupType {
     /// encrypted group type, data is encrypted, and it can need manager
@@ -43,7 +45,7 @@ impl GroupType {
 /// GroupInfo transfer in the network.
 #[derive(Serialize, Deserialize)]
 pub enum GroupInfo {
-    /// params: owner, owner_name, owner_avatar, Group_ID, group_type, is_must_agree_by_manager,
+    /// params: owner, owner_name, owner_avatar, Group ID, group_type, is_must_agree_by_manager,
     /// group_name, group_bio, group_avatar.
     Common(
         GroupId,
@@ -56,7 +58,7 @@ pub enum GroupInfo {
         String,
         Vec<u8>,
     ),
-    /// params: owner, owner_name, owner_avatar, Group_ID, is_must_agree_by_manager, key_hash,
+    /// params: owner, owner_name, owner_avatar, Group ID, is_must_agree_by_manager, key_hash,
     /// group_name(bytes), group_bio(bytes), group_avatar(bytes).
     Encrypted(
         GroupId,
@@ -72,10 +74,12 @@ pub enum GroupInfo {
 }
 
 /// Group chat connect data structure.
-/// params: Group_ID, join_proof.
+/// params: Group ID, join_proof.
 #[derive(Serialize, Deserialize)]
 pub struct LayerConnect(pub GroupId, pub ConnectProof);
 
+/// Group chat connect success result data structure.
+/// params: Group ID, group current height.
 #[derive(Serialize, Deserialize)]
 pub struct LayerResult(pub GroupId, pub i64);
 
@@ -128,7 +132,7 @@ impl CheckType {
     }
 }
 
-/// ESSE app's layer Event.
+/// ESSE Group chat app's layer Event.
 #[derive(Serialize, Deserialize)]
 pub enum LayerEvent {
     /// offline. as BaseLayerEvent.
@@ -140,13 +144,13 @@ pub enum LayerEvent {
     /// check if account has permission to create group, and supported group types.
     Check,
     /// result check.
-    /// params: account, is_ok, supported_group_types.
+    /// params: check type, supported_group_types.
     CheckResult(CheckType, Vec<GroupType>),
     /// create a Group Chat.
     /// params: group_info, proof.
     Create(GroupInfo, Proof),
     /// result create group success.
-    /// params: Group_ID, is_ok.
+    /// params: Group ID, is_ok.
     CreateResult(GroupId, bool),
     /// join group request. Group ID, Join Proof and info, request db id.
     Request(GroupId, JoinProof),
@@ -156,20 +160,25 @@ pub enum LayerEvent {
     RequestResult(GroupId, i64, bool),
     /// agree join request.
     Agree(GroupId, GroupInfo),
-    /// reject join request. Group_ID, if lost efficacy.
+    /// reject join request. Group ID, if lost efficacy.
     Reject(GroupId, bool),
-    /// online group member. GroupId, member, address.
+    /// online group member. Group ID, member id, member address.
     MemberOnline(GroupId, GroupId, PeerAddr),
-    /// offline group member. GroupId, member.
+    /// offline group member. Group ID, member id.
     MemberOffline(GroupId, GroupId),
-    /// sync group event. GroupId, height, event.
+    /// sync online members.
+    MemberOnlineSync(GroupId),
+    /// sync online members result.
+    MemberOnlineSyncResult(GroupId, Vec<(GroupId, PeerAddr)>),
+    /// sync group event. Group ID, height, event.
     Sync(GroupId, i64, Event),
-    /// packed sync event request. GroupId, from.
+    /// packed sync event request. Group ID, from.
     SyncReq(GroupId, i64),
-    /// packed sync event. GroupId, height, from, to, packed events.
+    /// packed sync event. Group ID, current height, from height, to height, packed events.
     Packed(GroupId, i64, i64, i64, Vec<PackedEvent>),
 }
 
+/// Group chat packed event.
 #[derive(Serialize, Deserialize)]
 pub enum PackedEvent {
     GroupInfo,
@@ -189,6 +198,7 @@ pub enum PackedEvent {
     None,
 }
 
+/// Group chat event.
 #[derive(Serialize, Deserialize, Clone)]
 pub enum Event {
     GroupInfo,
@@ -206,7 +216,7 @@ pub enum Event {
     MessageCreate(GroupId, NetworkMessage, i64),
 }
 
-/// message type use in network.
+/// Group chat message type use in network.
 #[derive(Serialize, Deserialize, Clone)]
 pub enum NetworkMessage {
     String(String),                              // content

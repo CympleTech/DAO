@@ -25,6 +25,7 @@ pub(crate) struct Layer {
     /// managers that can created group chat here.
     managers: HashMap<GroupId, (bool, i32)>, // TODO need deleted.
     /// running groups, with members info.
+    /// params: online members (member id, member address, is manager), current height, db id.
     groups: HashMap<GroupId, (Vec<(GroupId, PeerAddr, bool)>, i64, i64)>,
 }
 
@@ -124,7 +125,7 @@ impl Layer {
     ) -> Result<()> {
         match gevent {
             LayerEvent::Offline(gcd) => {
-                if !self.is_online_addr(&gcd, &addr) {
+                if !self.is_online_member(&gcd, &fmid) {
                     return Ok(());
                 }
                 self.del_member(&gcd, &fmid);
@@ -326,6 +327,10 @@ impl Layer {
             LayerEvent::Sync(gcd, _, event) => {
                 println!("Start handle Event.");
 
+                if !self.is_online_member(&gcd, &fmid) {
+                    return Ok(());
+                }
+
                 let fid = self.fid(&gcd)?;
 
                 let (cid, ctype) = match &event {
@@ -377,6 +382,10 @@ impl Layer {
                 }
             }
             LayerEvent::SyncReq(gcd, from) => {
+                if !self.is_online_member(&gcd, &fmid) {
+                    return Ok(());
+                }
+
                 let (height, fid) = self.height_and_fid(&gcd)?;
                 println!("Got sync request. height: {} from: {}", height, from);
                 if height > from {
@@ -393,14 +402,26 @@ impl Layer {
                     println!("Sended sync request results. from: {}, to: {}", from, to);
                 }
             }
-            LayerEvent::CheckResult(..) => {}   // Nerver here.
-            LayerEvent::CreateResult(..) => {}  // Nerver here.
-            LayerEvent::RequestHandle(..) => {} // Nerver here.
-            LayerEvent::Agree(..) => {}         // Nerver here.
-            LayerEvent::Reject(..) => {}        // Nerver here.
-            LayerEvent::Packed(..) => {}        // Nerver here.
-            LayerEvent::MemberOnline(..) => {}  // Nerver here.
-            LayerEvent::MemberOffline(..) => {} // Never here.
+            LayerEvent::MemberOnlineSync(gcd) => {
+                if !self.is_online_member(&gcd, &fmid) {
+                    return Ok(());
+                }
+
+                let onlines = self.onlines(&gcd)?;
+                let event = LayerEvent::MemberOnlineSyncResult(gcd, onlines);
+                let data = postcard::to_allocvec(&event).unwrap_or(vec![]);
+                let s = SendType::Event(0, addr, data);
+                add_layer(results, fmid, s);
+            }
+            LayerEvent::MemberOnlineSyncResult(..) => {} // Nerver here.
+            LayerEvent::CheckResult(..) => {}            // Nerver here.
+            LayerEvent::CreateResult(..) => {}           // Nerver here.
+            LayerEvent::RequestHandle(..) => {}          // Nerver here.
+            LayerEvent::Agree(..) => {}                  // Nerver here.
+            LayerEvent::Reject(..) => {}                 // Nerver here.
+            LayerEvent::Packed(..) => {}                 // Nerver here.
+            LayerEvent::MemberOnline(..) => {}           // Nerver here.
+            LayerEvent::MemberOffline(..) => {}          // Never here.
         }
 
         Ok(())
@@ -431,6 +452,13 @@ impl Layer {
         self.groups
             .get(gid)
             .map(|v| &v.0)
+            .ok_or(new_io_error("Group missing"))
+    }
+
+    fn onlines(&self, gid: &GroupId) -> Result<Vec<(GroupId, PeerAddr)>> {
+        self.groups
+            .get(gid)
+            .map(|v| v.0.iter().map(|(g, a, _)| (*g, *a)).collect())
             .ok_or(new_io_error("Group missing"))
     }
 
@@ -485,15 +513,16 @@ impl Layer {
         }
     }
 
-    pub fn is_online_addr(&self, gid: &GroupId, addr: &PeerAddr) -> bool {
+    pub fn is_online_member(&self, gid: &GroupId, mid: &GroupId) -> bool {
         if let Some((members, _, _)) = self.groups.get(gid) {
-            for (_, maddr, _) in members {
-                if maddr == addr {
+            for (mmid, _, _) in members {
+                if mmid == mid {
                     return true;
                 }
             }
         }
-        return false;
+
+        false
     }
 
     pub async fn broadcast_join(
