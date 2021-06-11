@@ -12,7 +12,7 @@ use group_chat_types::{
 };
 
 use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message, Request};
-use crate::storage::{init_local_files, read_avatar, write_avatar};
+use crate::storage::{delete_avatar, init_local_files, read_avatar, write_avatar};
 
 /// Group chat server to ESSE.
 #[inline]
@@ -362,6 +362,7 @@ impl Layer {
                     Event::MemberLeave(mid) => {
                         let member = Member::get(fid, mid).await?;
                         member.leave().await?;
+                        let _ = delete_avatar(&self.base, &gcd, &mid).await;
                         (member.id, ConsensusType::MemberLeave)
                     }
                     Event::MessageCreate(mid, nmsg, _) => {
@@ -388,7 +389,7 @@ impl Layer {
 
                 let (height, fid) = self.height_and_fid(&gcd)?;
                 println!("Got sync request. height: {} from: {}", height, from);
-                if height > from {
+                if height >= from {
                     let to = if height - from > 100 {
                         from + 100
                     } else {

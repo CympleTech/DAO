@@ -146,6 +146,16 @@ impl GroupChat {
     }
 
     pub async fn insert(&mut self) -> Result<()> {
+        // check if unique group id.
+        let unique_check =
+            sqlx::query!("SELECT id from groups WHERE g_id = $1", self.g_id.to_hex())
+                .fetch_optional(get_pool()?)
+                .await
+                .map_err(|_| new_io_error("database failure."))?;
+        if unique_check.is_some() {
+            return Err(new_io_error("unique group id."));
+        }
+
         let rec = sqlx::query!(
             "INSERT INTO groups (owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
             self.owner.to_hex(),
@@ -252,36 +262,50 @@ impl Member {
     }
 
     pub async fn insert(&mut self) -> Result<()> {
-        let rec = sqlx::query!(
-            "INSERT INTO members (fid, m_id, m_addr, m_name, is_manager, datetime) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        let unique_check = sqlx::query!(
+            "SELECT id from members WHERE fid = $1 AND m_id = $2",
             self.fid,
-            self.m_id.to_hex(),
-            self.m_addr.to_hex(),
-            self.m_name,
-            self.is_manager,
-            self.datetime
-        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            self.m_id.to_hex()
+        )
+        .fetch_optional(get_pool()?)
+        .await
+        .map_err(|_| new_io_error("database failure."))?;
 
-        self.id = rec.id;
+        if let Some(rec) = unique_check {
+            self.id = rec.id;
+            let _ = sqlx::query!("UPDATE members SET m_addr = $1, m_name = $2, is_manager = $3, datetime = $4, is_deleted = false WHERE id = $5",
+                self.m_addr.to_hex(),
+                self.m_name,
+                self.is_manager,
+                self.datetime,
+                self.id
+            ).execute(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+        } else {
+            let rec = sqlx::query!(
+                "INSERT INTO members (fid, m_id, m_addr, m_name, is_manager, datetime) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                self.fid,
+                self.m_id.to_hex(),
+                self.m_addr.to_hex(),
+                self.m_name,
+                self.is_manager,
+                self.datetime
+            ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            self.id = rec.id;
+        }
+
         Ok(())
     }
 
     pub async fn exist(fid: &i64, mid: &GroupId) -> Result<bool> {
-        let recs = sqlx::query!(
-            "SELECT is_deleted FROM members WHERE fid = $1 and m_id = $2",
+        sqlx::query!(
+            "SELECT id FROM members WHERE fid = $1 AND m_id = $2 AND is_deleted = false",
             fid,
             mid.to_hex()
         )
-        .fetch_all(get_pool()?)
+        .fetch_optional(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
-
-        for res in recs {
-            if !res.is_deleted {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        .map_err(|_| new_io_error("database failure."))
+        .map(|v| v.is_some())
     }
 
     pub async fn get_id(id: &i64) -> Result<Member> {
@@ -596,15 +620,30 @@ impl Manager {
     }
 
     pub async fn insert(&mut self) -> Result<()> {
-        let rec = sqlx::query!(
+        let unique_check =
+            sqlx::query!("SELECT id from managers WHERE gid = $1", self.gid.to_hex())
+                .fetch_optional(get_pool()?)
+                .await
+                .map_err(|_| new_io_error("database failure."))?;
+
+        if let Some(rec) = unique_check {
+            self.id = rec.id;
+            let _ = sqlx::query!("UPDATE managers SET is_closed = $1, datetime = $2, is_deleted = false WHERE id = $3",
+                self.is_closed,
+                self.datetime,
+                self.id
+            ).execute(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+        } else {
+            let rec = sqlx::query!(
             "INSERT INTO managers ( gid, times, is_closed, datetime ) VALUES ( $1, $2, $3, $4 ) RETURNING id",
             self.gid.to_hex(),
             self.times,
             self.is_closed,
             self.datetime
         ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            self.id = rec.id;
+        }
 
-        self.id = rec.id;
         Ok(())
     }
 }
@@ -732,16 +771,37 @@ impl Consensus {
     }
 
     pub async fn insert(fid: &i64, height: &i64, cid: &i64, ctype: &ConsensusType) -> Result<()> {
-        let rec = sqlx::query!(
-            "INSERT INTO consensus ( fid, height, ctype, cid ) VALUES ( $1, $2, $3, $4 )",
+        let unique_check = sqlx::query!(
+            "SELECT id from consensus WHERE fid = $1 AND height = $2",
             fid,
-            height,
-            ctype.to_i16(),
-            cid
+            height
         )
-        .execute(get_pool()?)
+        .fetch_optional(get_pool()?)
         .await
         .map_err(|_| new_io_error("database failure."))?;
+
+        if let Some(rec) = unique_check {
+            let _ = sqlx::query!(
+                "UPDATE consensus SET ctype = $1, cid = $2 WHERE id = $3",
+                ctype.to_i16(),
+                cid,
+                rec.id
+            )
+            .execute(get_pool()?)
+            .await
+            .map_err(|_| new_io_error("database failure."))?;
+        } else {
+            let _ = sqlx::query!(
+                "INSERT INTO consensus ( fid, height, ctype, cid ) VALUES ( $1, $2, $3, $4 )",
+                fid,
+                height,
+                ctype.to_i16(),
+                cid
+            )
+            .execute(get_pool()?)
+            .await
+            .map_err(|_| new_io_error("database failure."))?;
+        }
 
         Ok(())
     }
