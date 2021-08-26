@@ -4,7 +4,7 @@ use tdn::types::{
     group::GroupId,
     message::NetworkType,
     primitive::{HandleResult, PeerAddr},
-    rpc::{json, RpcHandler, RpcParam},
+    rpc::{json, RpcError, RpcHandler, RpcParam},
 };
 
 use crate::layer::Layer;
@@ -25,7 +25,7 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, layer: Arc<RwLock<Layer>>) -> RpcH
     handler.add_method(
         "add-manager",
         |_gid: GroupId, params: Vec<RpcParam>, state: Arc<RpcState>| async move {
-            let gid = GroupId::from_hex(params[0].as_str()?)?;
+            let gid = GroupId::from_hex(params[0].as_str().ok_or(RpcError::ParseError)?)?;
 
             let mut results = HandleResult::rpc(json!(params));
 
@@ -43,7 +43,7 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, layer: Arc<RwLock<Layer>>) -> RpcH
     handler.add_method(
         "remove-manager",
         |_gid: GroupId, params: Vec<RpcParam>, state: Arc<RpcState>| async move {
-            let gid = GroupId::from_hex(params[0].as_str()?)?;
+            let gid = GroupId::from_hex(params[0].as_str().ok_or(RpcError::ParseError)?)?;
 
             let mut results = HandleResult::rpc(json!(params));
 

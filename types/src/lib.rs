@@ -11,8 +11,33 @@ pub const GROUP_CHAT_ID: GroupId = GroupId([
     0, 0, 0, 0, 0, 0, 0, 2,
 ]);
 
+/// Group Location.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroupLocation {
+    /// remote. need server to hold this group.
+    Remote,
+    /// local. group cannot transfer, and always in owner device.
+    Local,
+}
+
+impl GroupLocation {
+    pub fn to_u32(&self) -> u32 {
+        match self {
+            GroupLocation::Remote => 0,
+            GroupLocation::Local => 1,
+        }
+    }
+
+    pub fn from_u32(u: u32) -> Self {
+        match u {
+            1 => GroupLocation::Local,
+            _ => GroupLocation::Remote,
+        }
+    }
+}
+
 /// Group chat types. include: Encrypted, Private, Open.
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GroupType {
     /// encrypted group type, data is encrypted, and it can need manager
     /// or take manager's zero-knowledge-proof.
