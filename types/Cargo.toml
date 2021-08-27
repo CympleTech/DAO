@@ -1,5 +1,5 @@
 [package]
-name = "group-chat-types"
+name = "group-chat_types"
 version = "0.1.0"
 authors = ["Contact <contact@cypherlink.io>"]
 edition = "2018"
@@ -11,5 +11,5 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-tdn-types = { git = "https://github.com/cypherlink/TDN", branch="main", default-features = false }
-tdn-did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
+tdn_types = { version = "0.4", default-features = false }
+tdn_did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }

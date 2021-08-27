@@ -23,10 +23,10 @@ async-fs = "1.5"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "0.5", default-features = false, features = ["alloc"] }
 sysinfo = "0.16"
-tdn = { git = "https://github.com/cypherlink/TDN", branch="main", default-features = false, features = ["full"] }
-tdn-did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
-tdn-storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
-group-chat-types = { version = "0.1", path = "./types" }
+tdn = { version = "0.4", default-features = false, features = ["full"] }
+tdn_did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
+tdn_storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
+group-chat_types = { version = "0.1", path = "./types" }
 sqlx = { version = "0.5", features = [ "runtime-async-std-native-tls", "postgres" ] }
 once_cell = "1.7"
 config = "0.11"
