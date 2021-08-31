@@ -1,4 +1,3 @@
-use async_lock::RwLock;
 use std::sync::Arc;
 use tdn::types::{
     group::GroupId,
@@ -6,6 +5,7 @@ use tdn::types::{
     primitive::{HandleResult, PeerAddr},
     rpc::{json, RpcError, RpcHandler, RpcParam},
 };
+use tokio::sync::RwLock;
 
 use crate::layer::Layer;
 use crate::models::Manager;

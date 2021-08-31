@@ -12,23 +12,25 @@ use simplelog::{CombinedLogger, Config as LogConfig, LevelFilter};
 use std::env::args;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tdn::{
-    prelude::*,
-    smol::{channel::Sender, io::Result, lock::RwLock},
+use tdn::prelude::*;
+use tokio::{
+    io::Result,
+    sync::{mpsc::Sender, RwLock},
 };
 
 pub const DEFAULT_P2P_ADDR: &'static str = "127.0.0.1:7366"; // DEBUG CODE
 pub const DEFAULT_HTTP_ADDR: &'static str = "127.0.0.1:8002"; // DEBUG CODE
 pub const DEFAULT_LOG_FILE: &'static str = "esse.log.txt";
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let db_path = args().nth(1).unwrap_or("./.tdn".to_owned());
 
     if std::fs::metadata(&db_path).is_err() {
         std::fs::create_dir(&db_path).unwrap();
     }
 
-    tdn::smol::block_on(start(db_path)).unwrap();
+    start(db_path);
 }
 
 pub async fn start(db_path: String) -> Result<()> {
@@ -36,7 +38,7 @@ pub async fn start(db_path: String) -> Result<()> {
 
     let db_path = PathBuf::from(db_path);
     if !db_path.exists() {
-        tdn::smol::fs::create_dir_all(&db_path).await?;
+        tokio::fs::create_dir_all(&db_path).await?;
     }
 
     init_log(db_path.clone());
@@ -63,14 +65,14 @@ pub async fn start(db_path: String) -> Result<()> {
 
     let _rand_secret = config.secret.clone();
 
-    let (peer_id, sender, recver) = start_with_config(config).await.unwrap();
+    let (peer_id, sender, mut recver) = start_with_config(config).await.unwrap();
     info!("Network Peer id : {}", peer_id.to_hex());
 
     let layer = Arc::new(RwLock::new(layer::Layer::new(db_path).await?));
 
     let rpc_handler = rpc::new_rpc_handler(peer_id, layer.clone());
 
-    while let Ok(message) = recver.recv().await {
+    while let Some(message) = recver.recv().await {
         match message {
             ReceiveMessage::Group(_fgid, _g_msg) => {
                 //
@@ -163,6 +165,7 @@ pub fn init_log(mut db_path: PathBuf) {
         LevelFilter::Debug,
         LogConfig::default(),
         simplelog::TerminalMode::Mixed,
+        simplelog::ColorChoice::Auto,
     )])
     .unwrap();
 

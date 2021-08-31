@@ -9,11 +9,11 @@ use sqlx::{PgPool, Pool, Postgres};
 use std::env;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tdn::smol::fs;
 use tdn::types::{
     group::GroupId,
     primitive::{new_io_error, Result},
 };
+use tokio::fs;
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -177,10 +177,9 @@ pub(crate) async fn write_image(base: &PathBuf, gid: &GroupId, bytes: &[u8]) -> 
     let mut thumb_path = path.clone();
     thumb_path.push(THUMB_DIR);
     thumb_path.push(name.clone());
-    tdn::smol::spawn(async move {
+    tokio::spawn(async move {
         let _ = thumb.save(thumb_path);
-    })
-    .detach();
+    });
 
     path.push(IMAGE_DIR);
     path.push(name.clone());
