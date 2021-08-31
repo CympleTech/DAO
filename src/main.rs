@@ -30,7 +30,7 @@ async fn main() {
         std::fs::create_dir(&db_path).unwrap();
     }
 
-    start(db_path);
+    start(db_path).await;
 }
 
 pub async fn start(db_path: String) -> Result<()> {
