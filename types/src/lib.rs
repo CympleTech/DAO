@@ -204,6 +204,7 @@ pub enum LayerEvent {
 }
 
 impl LayerEvent {
+    /// get event's group id.
     pub fn gcd(&self) -> Option<&GroupId> {
         match self {
             Self::Offline(gcd) => Some(gcd),
@@ -225,6 +226,25 @@ impl LayerEvent {
             Self::Sync(gcd, ..) => Some(gcd),
             Self::SyncReq(gcd, ..) => Some(gcd),
             Self::Packed(gcd, ..) => Some(gcd),
+        }
+    }
+
+    /// check if handle this, remote must online frist.
+    pub fn need_online(&self) -> bool {
+        match self {
+            Self::Offline(..) => true,
+            Self::Suspend(..) => true,
+            Self::Actived(..) => true,
+            Self::RequestHandle(..) => true,
+            Self::RequestResult(..) => true,
+            Self::MemberOnline(..) => true,
+            Self::MemberOffline(..) => true,
+            Self::MemberOnlineSync(..) => true,
+            Self::MemberOnlineSyncResult(..) => true,
+            Self::Sync(..) => true,
+            Self::SyncReq(..) => true,
+            Self::Packed(..) => true,
+            _ => false,
         }
     }
 }
