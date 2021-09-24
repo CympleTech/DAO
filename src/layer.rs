@@ -57,7 +57,7 @@ impl Layer {
 
         match msg {
             RecvType::Connect(addr, data) => {
-                let LayerConnect(gcd, connect) = postcard::from_bytes(&data)
+                let LayerConnect(gcd, connect) = bincode::deserialize(&data)
                     .map_err(|_e| new_io_error("deserialize group chat connect failure"))?;
 
                 match connect {
@@ -70,7 +70,7 @@ impl Layer {
                             Self::had_join(height, gcd, gid, addr, &mut results);
 
                             let new_data =
-                                postcard::to_allocvec(&LayerEvent::MemberOnline(gcd, gid, addr))
+                                bincode::serialize(&LayerEvent::MemberOnline(gcd, gid, addr))
                                     .map_err(|_| new_io_error("serialize event error."))?;
                             for (mid, maddr, _) in self.groups(&gcd)? {
                                 let s = SendType::Event(0, *maddr, new_data.clone());
@@ -90,7 +90,7 @@ impl Layer {
                 for (g, (members, _, _)) in self.groups.iter_mut() {
                     if let Some(pos) = members.iter().position(|(_, x, _)| x == &addr) {
                         let (mid, addr, _) = members.remove(pos);
-                        let data = postcard::to_allocvec(&LayerEvent::MemberOffline(*g, mid))
+                        let data = bincode::serialize(&LayerEvent::MemberOffline(*g, mid))
                             .map_err(|_| new_io_error("serialize event error."))?;
                         for (mid, maddr, _) in members {
                             let s = SendType::Event(0, *maddr, data.clone());
@@ -101,7 +101,7 @@ impl Layer {
             }
             RecvType::Event(addr, bytes) => {
                 println!("Got Event");
-                let event: LayerEvent = postcard::from_bytes(&bytes)
+                let event: LayerEvent = bincode::deserialize(&bytes)
                     .map_err(|_| new_io_error("deserialize event error."))?;
                 self.handle_event(gid, addr, event, &mut results).await?;
             }
@@ -130,7 +130,7 @@ impl Layer {
                 }
                 self.del_member(&gcd, &fmid);
 
-                let new_data = postcard::to_allocvec(&LayerEvent::MemberOffline(gcd, fmid))
+                let new_data = bincode::serialize(&LayerEvent::MemberOffline(gcd, fmid))
                     .map_err(|_| new_io_error("serialize event error."))?;
 
                 for (mid, maddr, _) in self.groups(&gcd)? {
@@ -157,7 +157,7 @@ impl Layer {
                 } else {
                     LayerEvent::CheckResult(CheckType::Deny, supported)
                 };
-                let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+                let data = bincode::serialize(&res).unwrap_or(vec![]);
                 let s = SendType::Event(0, addr, data);
                 add_layer(results, fmid, s);
             }
@@ -213,7 +213,7 @@ impl Layer {
                     (LayerEvent::CheckResult(CheckType::Deny, supported), false)
                 };
 
-                let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+                let data = bincode::serialize(&res).unwrap_or(vec![]);
                 let s = SendType::Event(0, addr, data);
                 add_layer(results, fmid, s);
             }
@@ -375,7 +375,7 @@ impl Layer {
 
                 let height = self.add_height(&gcd, &cid, ctype).await?;
                 println!("Event broadcast");
-                let new_data = postcard::to_allocvec(&LayerEvent::Sync(gcd, height, event))
+                let new_data = bincode::serialize(&LayerEvent::Sync(gcd, height, event))
                     .map_err(|_| new_io_error("serialize event error."))?;
                 for (mid, maddr, _) in self.groups(&gcd)? {
                     let s = SendType::Event(0, *maddr, new_data.clone());
@@ -397,7 +397,7 @@ impl Layer {
                     };
                     let packed = Consensus::pack(&self.base, &gcd, &fid, &from, &to).await?;
                     let event = LayerEvent::Packed(gcd, height, from, to, packed);
-                    let data = postcard::to_allocvec(&event).unwrap_or(vec![]);
+                    let data = bincode::serialize(&event).unwrap_or(vec![]);
                     let s = SendType::Event(0, addr, data);
                     add_layer(results, fmid, s);
                     println!("Sended sync request results. from: {}, to: {}", from, to);
@@ -410,7 +410,7 @@ impl Layer {
 
                 let onlines = self.onlines(&gcd)?;
                 let event = LayerEvent::MemberOnlineSyncResult(gcd, onlines);
-                let data = postcard::to_allocvec(&event).unwrap_or(vec![]);
+                let data = bincode::serialize(&event).unwrap_or(vec![]);
                 let s = SendType::Event(0, addr, data);
                 add_layer(results, fmid, s);
             }
@@ -547,8 +547,7 @@ impl Layer {
             member.datetime,
         );
 
-        let new_data =
-            postcard::to_allocvec(&LayerEvent::Sync(*gcd, height, event)).unwrap_or(vec![]);
+        let new_data = bincode::serialize(&LayerEvent::Sync(*gcd, height, event)).unwrap_or(vec![]);
 
         if let Some((members, _, _)) = self.groups.get(gcd) {
             for (mid, maddr, _) in members {
@@ -577,7 +576,7 @@ impl Layer {
             request.id,
             request.datetime,
         );
-        let new_data = postcard::to_allocvec(&event).unwrap_or(vec![]);
+        let new_data = bincode::serialize(&event).unwrap_or(vec![]);
 
         if let Some((members, _, _)) = self.groups.get(gcd) {
             for (mid, maddr, is_m) in members {
@@ -598,7 +597,7 @@ impl Layer {
     ) {
         println!("start broadcast request result...");
         let new_data =
-            postcard::to_allocvec(&LayerEvent::RequestResult(*gcd, rid, ok)).unwrap_or(vec![]);
+            bincode::serialize(&LayerEvent::RequestResult(*gcd, rid, ok)).unwrap_or(vec![]);
 
         if let Some((members, _, _)) = self.groups.get(gcd) {
             for (mid, maddr, is_m) in members {
@@ -618,7 +617,7 @@ impl Layer {
         results: &mut HandleResult,
     ) {
         let res = LayerResult(gcd, height);
-        let data = postcard::to_allocvec(&res).unwrap_or(vec![]);
+        let data = bincode::serialize(&res).unwrap_or(vec![]);
         let s = SendType::Result(0, addr, true, false, data);
         add_layer(results, gid, s);
     }
@@ -634,14 +633,14 @@ impl Layer {
         let gavatar = read_avatar(&self.base, &gcd, &gcd).await?;
         let group_info = group.to_group_info(gavatar);
         let res = LayerEvent::Agree(gcd, group_info);
-        let d = postcard::to_allocvec(&res).unwrap_or(vec![]);
+        let d = bincode::serialize(&res).unwrap_or(vec![]);
         let s = SendType::Event(0, addr, d);
         add_layer(results, gid, s);
         Ok(())
     }
 
     fn reject(gcd: GroupId, gid: GroupId, addr: PeerAddr, lost: bool, res: &mut HandleResult) {
-        let d = postcard::to_allocvec(&LayerEvent::Reject(gcd, lost)).unwrap_or(vec![]);
+        let d = bincode::serialize(&LayerEvent::Reject(gcd, lost)).unwrap_or(vec![]);
         add_layer(res, gid, SendType::Event(0, addr, d));
     }
 }

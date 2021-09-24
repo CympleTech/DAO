@@ -203,6 +203,32 @@ pub enum LayerEvent {
     Packed(GroupId, i64, i64, i64, Vec<PackedEvent>),
 }
 
+impl LayerEvent {
+    pub fn gcd(&self) -> Option<&GroupId> {
+        match self {
+            Self::Offline(gcd) => Some(gcd),
+            Self::Suspend(gcd) => Some(gcd),
+            Self::Actived(gcd) => Some(gcd),
+            Self::Check => None,
+            Self::CheckResult(..) => None,
+            Self::Create(..) => None,
+            Self::CreateResult(gcd, _) => Some(gcd),
+            Self::Request(gcd, _) => Some(gcd),
+            Self::RequestHandle(gcd, ..) => Some(gcd),
+            Self::RequestResult(gcd, ..) => Some(gcd),
+            Self::Agree(gcd, ..) => Some(gcd),
+            Self::Reject(gcd, ..) => Some(gcd),
+            Self::MemberOnline(gcd, ..) => Some(gcd),
+            Self::MemberOffline(gcd, ..) => Some(gcd),
+            Self::MemberOnlineSync(gcd) => Some(gcd),
+            Self::MemberOnlineSyncResult(gcd, ..) => Some(gcd),
+            Self::Sync(gcd, ..) => Some(gcd),
+            Self::SyncReq(gcd, ..) => Some(gcd),
+            Self::Packed(gcd, ..) => Some(gcd),
+        }
+    }
+}
+
 /// Group chat packed event.
 #[derive(Serialize, Deserialize)]
 pub enum PackedEvent {
