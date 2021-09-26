@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tdn::types::{
     group::GroupId,
     message::{RecvType, SendType},
-    primitive::{new_io_error, HandleResult, PeerAddr, Result},
+    primitive::{HandleResult, PeerAddr, Result},
 };
 
 use group_chat_types::{
@@ -58,7 +58,7 @@ impl Layer {
         match msg {
             RecvType::Connect(addr, data) => {
                 let LayerConnect(gcd, connect) = bincode::deserialize(&data)
-                    .map_err(|_e| new_io_error("deserialize group chat connect failure"))?;
+                    .map_err(|_e| anyhow!("deserialize group chat connect failure"))?;
 
                 match connect {
                     ConnectProof::Common(proof) => {
@@ -71,7 +71,7 @@ impl Layer {
 
                             let new_data =
                                 bincode::serialize(&LayerEvent::MemberOnline(gcd, gid, addr))
-                                    .map_err(|_| new_io_error("serialize event error."))?;
+                                    .map_err(|_| anyhow!("serialize event error."))?;
                             for (mid, maddr, _) in self.groups(&gcd)? {
                                 let s = SendType::Event(0, *maddr, new_data.clone());
                                 add_layer(&mut results, *mid, s);
@@ -91,7 +91,7 @@ impl Layer {
                     if let Some(pos) = members.iter().position(|(_, x, _)| x == &addr) {
                         let (mid, addr, _) = members.remove(pos);
                         let data = bincode::serialize(&LayerEvent::MemberOffline(*g, mid))
-                            .map_err(|_| new_io_error("serialize event error."))?;
+                            .map_err(|_| anyhow!("serialize event error."))?;
                         for (mid, maddr, _) in members {
                             let s = SendType::Event(0, *maddr, data.clone());
                             add_layer(&mut results, *mid, s);
@@ -102,7 +102,7 @@ impl Layer {
             RecvType::Event(addr, bytes) => {
                 println!("Got Event");
                 let event: LayerEvent = bincode::deserialize(&bytes)
-                    .map_err(|_| new_io_error("deserialize event error."))?;
+                    .map_err(|_| anyhow!("deserialize event error."))?;
                 self.handle_event(gid, addr, event, &mut results).await?;
             }
             RecvType::Stream(_uid, _stream, _bytes) => {
@@ -131,7 +131,7 @@ impl Layer {
                 self.del_member(&gcd, &fmid);
 
                 let new_data = bincode::serialize(&LayerEvent::MemberOffline(gcd, fmid))
-                    .map_err(|_| new_io_error("serialize event error."))?;
+                    .map_err(|_| anyhow!("serialize event error."))?;
 
                 for (mid, maddr, _) in self.groups(&gcd)? {
                     let s = SendType::Event(0, *maddr, new_data.clone());
@@ -376,7 +376,7 @@ impl Layer {
                 let height = self.add_height(&gcd, &cid, ctype).await?;
                 println!("Event broadcast");
                 let new_data = bincode::serialize(&LayerEvent::Sync(gcd, height, event))
-                    .map_err(|_| new_io_error("serialize event error."))?;
+                    .map_err(|_| anyhow!("serialize event error."))?;
                 for (mid, maddr, _) in self.groups(&gcd)? {
                     let s = SendType::Event(0, *maddr, new_data.clone());
                     add_layer(results, *mid, s);
@@ -432,35 +432,35 @@ impl Layer {
         self.groups
             .get(gid)
             .map(|v| &v.2)
-            .ok_or(new_io_error("Group missing"))
+            .ok_or(anyhow!("Group missing"))
     }
 
     fn height(&self, gid: &GroupId) -> Result<i64> {
         self.groups
             .get(gid)
             .map(|v| v.1)
-            .ok_or(new_io_error("Group missing"))
+            .ok_or(anyhow!("Group missing"))
     }
 
     fn height_and_fid(&self, gid: &GroupId) -> Result<(i64, i64)> {
         self.groups
             .get(gid)
             .map(|v| (v.1, v.2))
-            .ok_or(new_io_error("Group missing"))
+            .ok_or(anyhow!("Group missing"))
     }
 
     fn groups(&self, gid: &GroupId) -> Result<&Vec<(GroupId, PeerAddr, bool)>> {
         self.groups
             .get(gid)
             .map(|v| &v.0)
-            .ok_or(new_io_error("Group missing"))
+            .ok_or(anyhow!("Group missing"))
     }
 
     fn onlines(&self, gid: &GroupId) -> Result<Vec<(GroupId, PeerAddr)>> {
         self.groups
             .get(gid)
             .map(|v| v.0.iter().map(|(g, a, _)| (*g, *a)).collect())
-            .ok_or(new_io_error("Group missing"))
+            .ok_or(anyhow!("Group missing"))
     }
 
     pub fn add_manager(&mut self, gid: GroupId, limit: i32) {
@@ -490,7 +490,7 @@ impl Layer {
 
             Ok(*height)
         } else {
-            Err(new_io_error("Group missing"))
+            Err(anyhow!("Group missing"))
         }
     }
 

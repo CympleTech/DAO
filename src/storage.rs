@@ -9,10 +9,7 @@ use sqlx::{PgPool, Pool, Postgres};
 use std::env;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tdn::types::{
-    group::GroupId,
-    primitive::{new_io_error, Result},
-};
+use tdn::types::{group::GroupId, primitive::Result};
 use tokio::fs;
 
 #[derive(Debug, Deserialize)]
@@ -28,15 +25,14 @@ impl Config {
         let database = env::var("DATABASE_URL").expect("DATABASE_URL missing");
 
         cfg.set("database", database)
-            .map_err(|_| new_io_error("set config error."))?;
+            .map_err(|_| anyhow!("set config error."))?;
 
         // others.
         for (key, value) in env::vars() {
             cfg.set(&key, value)
-                .map_err(|_| new_io_error("set config error."))?;
+                .map_err(|_| anyhow!("set config error."))?;
         }
-        cfg.try_into()
-            .map_err(|_| new_io_error("config init error."))
+        cfg.try_into().map_err(|_| anyhow!("config init error."))
     }
 }
 
@@ -44,7 +40,7 @@ pub static INSTANCE: OnceCell<Pool<Postgres>> = OnceCell::new();
 
 #[inline]
 pub fn get_pool<'a>() -> Result<&'a PgPool> {
-    INSTANCE.get().ok_or(new_io_error("DB get error!"))
+    INSTANCE.get().ok_or(anyhow!("DB get error!"))
 }
 
 pub async fn init() -> Result<()> {
@@ -55,11 +51,9 @@ pub async fn init() -> Result<()> {
         .max_connections(5)
         .connect(&cfg.database)
         .await
-        .map_err(|_| new_io_error("DB postgres connect failure! check database & user/password"))?;
+        .map_err(|_| anyhow!("DB postgres connect failure! check database & user/password"))?;
 
-    INSTANCE
-        .set(pool)
-        .map_err(|_| new_io_error("DB set error!"))
+    INSTANCE.set(pool).map_err(|_| anyhow!("DB set error!"))
 }
 
 const FILES_DIR: &'static str = "files";
@@ -112,7 +106,7 @@ pub(crate) async fn read_file(base: &PathBuf, gid: &GroupId, name: &str) -> Resu
     path.push(FILES_DIR);
     path.push(name);
     if path.exists() {
-        fs::read(path).await
+        Ok(fs::read(path).await?)
     } else {
         Ok(vec![])
     }
@@ -124,7 +118,7 @@ pub(crate) async fn read_image(base: &PathBuf, gid: &GroupId, name: &str) -> Res
     path.push(IMAGE_DIR);
     path.push(name);
     if path.exists() {
-        fs::read(path).await
+        Ok(fs::read(path).await?)
     } else {
         Ok(vec![])
     }
@@ -158,7 +152,7 @@ fn image_name() -> String {
 #[inline]
 fn image_thumb(bytes: &[u8]) -> Result<DynamicImage> {
     // thumbnail image. 120*800
-    let img = load_from_memory(&bytes).map_err(|_e| new_io_error("image invalid format."))?;
+    let img = load_from_memory(&bytes).map_err(|_e| anyhow!("image invalid format."))?;
     let (x, _) = img.dimensions();
     if x > 100 {
         Ok(img.thumbnail(120, 800))
@@ -205,7 +199,7 @@ pub(crate) async fn read_avatar(
     path.push(AVATAR_DIR);
     path.push(avatar_png(remote));
     if path.exists() {
-        fs::read(path).await
+        Ok(fs::read(path).await?)
     } else {
         Ok(vec![])
     }
@@ -224,7 +218,7 @@ pub(crate) async fn write_avatar(
     path.push(gid.to_hex());
     path.push(AVATAR_DIR);
     path.push(avatar_png(remote));
-    fs::write(path, bytes).await
+    Ok(fs::write(path, bytes).await?)
 }
 
 pub(crate) async fn delete_avatar(base: &PathBuf, gid: &GroupId, remote: &GroupId) -> Result<()> {
@@ -233,7 +227,7 @@ pub(crate) async fn delete_avatar(base: &PathBuf, gid: &GroupId, remote: &GroupI
     path.push(AVATAR_DIR);
     path.push(avatar_png(remote));
     if path.exists() {
-        fs::remove_file(path).await
+        Ok(fs::remove_file(path).await?)
     } else {
         Ok(())
     }
@@ -245,7 +239,7 @@ pub(crate) async fn read_record(base: &PathBuf, gid: &GroupId, name: &str) -> Re
     path.push(RECORD_DIR);
     path.push(name);
     if path.exists() {
-        fs::read(path).await
+        Ok(fs::read(path).await?)
     } else {
         Ok(vec![])
     }
@@ -278,7 +272,7 @@ pub(crate) async fn _delete_record(base: &PathBuf, gid: &GroupId, name: &str) ->
     path.push(gid.to_hex());
     path.push(RECORD_DIR);
     path.push(name);
-    fs::remove_file(path).await
+    Ok(fs::remove_file(path).await?)
 }
 
 pub(crate) fn _write_emoji(base: &PathBuf, gid: &GroupId) -> Result<()> {

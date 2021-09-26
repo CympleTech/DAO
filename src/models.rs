@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tdn::types::{
     group::GroupId,
-    primitive::{new_io_error, PeerAddr, Result},
+    primitive::{PeerAddr, Result},
 };
 
 use group_chat_types::{GroupInfo, GroupType, NetworkMessage, PackedEvent};
@@ -101,7 +101,7 @@ impl GroupChat {
         let res = sqlx::query!(
             "SELECT id, owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime FROM groups WHERE is_deleted = false and id = $1",
             id
-        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
 
         Ok(Self {
             id: res.id,
@@ -122,7 +122,7 @@ impl GroupChat {
         let recs = sqlx::query!(
             "SELECT id, owner, height, g_id, g_type, g_name, g_bio, is_need_agree, key_hash, is_closed, datetime FROM groups WHERE is_deleted = false ORDER BY id",
         )
-            .fetch_all(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            .fetch_all(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
 
         let mut managers = vec![];
 
@@ -151,9 +151,9 @@ impl GroupChat {
             sqlx::query!("SELECT id from groups WHERE g_id = $1", self.g_id.to_hex())
                 .fetch_optional(get_pool()?)
                 .await
-                .map_err(|_| new_io_error("database failure."))?;
+                .map_err(|_| anyhow!("database failure."))?;
         if unique_check.is_some() {
-            return Err(new_io_error("unique group id."));
+            return Err(anyhow!("unique group id."));
         }
 
         let rec = sqlx::query!(
@@ -168,7 +168,7 @@ impl GroupChat {
             hex::encode(&self.key_hash),
             self.is_closed,
             self.datetime
-        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
 
         self.id = rec.id;
         Ok(())
@@ -178,7 +178,7 @@ impl GroupChat {
         let _ = sqlx::query!("UPDATE groups SET height = $1 WHERE id = $2", height, id)
             .execute(get_pool()?)
             .await
-            .map_err(|_| new_io_error("database failure."))?;
+            .map_err(|_| anyhow!("database failure."))?;
 
         Ok(())
     }
@@ -269,7 +269,7 @@ impl Member {
         )
         .fetch_optional(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         if let Some(rec) = unique_check {
             self.id = rec.id;
@@ -279,7 +279,7 @@ impl Member {
                 self.is_manager,
                 self.datetime,
                 self.id
-            ).execute(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            ).execute(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
         } else {
             let rec = sqlx::query!(
                 "INSERT INTO members (fid, m_id, m_addr, m_name, is_manager, datetime) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
@@ -289,7 +289,7 @@ impl Member {
                 self.m_name,
                 self.is_manager,
                 self.datetime
-            ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            ).fetch_one(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
             self.id = rec.id;
         }
 
@@ -304,7 +304,7 @@ impl Member {
         )
         .fetch_optional(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))
+        .map_err(|_| anyhow!("database failure."))
         .map(|v| v.is_some())
     }
 
@@ -315,7 +315,7 @@ impl Member {
         )
         .fetch_one(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         Ok(Member {
             id: rec.id,
@@ -336,7 +336,7 @@ impl Member {
         )
         .fetch_one(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         Ok(Member {
             id: rec.id,
@@ -356,7 +356,7 @@ impl Member {
         )
         .execute(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         Ok(())
     }
@@ -369,7 +369,7 @@ impl Member {
         )
         .fetch_all(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         for res in recs {
             if !res.is_deleted && res.is_manager {
@@ -500,7 +500,7 @@ impl Message {
             m_type.to_i16(),
             raw,
             datetime,
-        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
 
         Ok(rec.id)
     }
@@ -554,7 +554,7 @@ impl Message {
         )
         .fetch_one(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         Ok(Message {
             id: rec.id,
@@ -602,7 +602,7 @@ impl Manager {
         let recs = sqlx::query!(
             "SELECT id, gid, times, is_closed, datetime FROM managers WHERE is_deleted = false ORDER BY id",
         )
-            .fetch_all(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            .fetch_all(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
 
         let mut managers = vec![];
 
@@ -624,7 +624,7 @@ impl Manager {
             sqlx::query!("SELECT id from managers WHERE gid = $1", self.gid.to_hex())
                 .fetch_optional(get_pool()?)
                 .await
-                .map_err(|_| new_io_error("database failure."))?;
+                .map_err(|_| anyhow!("database failure."))?;
 
         if let Some(rec) = unique_check {
             self.id = rec.id;
@@ -632,7 +632,7 @@ impl Manager {
                 self.is_closed,
                 self.datetime,
                 self.id
-            ).execute(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+            ).execute(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
         } else {
             let rec = sqlx::query!(
             "INSERT INTO managers ( gid, times, is_closed, datetime ) VALUES ( $1, $2, $3, $4 ) RETURNING id",
@@ -640,7 +640,7 @@ impl Manager {
             self.times,
             self.is_closed,
             self.datetime
-        ).fetch_one(get_pool()?).await.map_err(|_| new_io_error("database failure."))?;
+        ).fetch_one(get_pool()?).await.map_err(|_| anyhow!("database failure."))?;
             self.id = rec.id;
         }
 
@@ -719,7 +719,7 @@ impl Consensus {
             sqlx::query!("SELECT id, fid, height, ctype, cid FROM consensus WHERE fid = $1 AND height BETWEEN $2 AND $3", fid, from, to)
             .fetch_all(get_pool()?)
             .await
-            .map_err(|_| new_io_error("database failure."))?;
+            .map_err(|_| anyhow!("database failure."))?;
 
         let mut packed = vec![];
 
@@ -778,7 +778,7 @@ impl Consensus {
         )
         .fetch_optional(get_pool()?)
         .await
-        .map_err(|_| new_io_error("database failure."))?;
+        .map_err(|_| anyhow!("database failure."))?;
 
         if let Some(rec) = unique_check {
             let _ = sqlx::query!(
@@ -789,7 +789,7 @@ impl Consensus {
             )
             .execute(get_pool()?)
             .await
-            .map_err(|_| new_io_error("database failure."))?;
+            .map_err(|_| anyhow!("database failure."))?;
         } else {
             let _ = sqlx::query!(
                 "INSERT INTO consensus ( fid, height, ctype, cid ) VALUES ( $1, $2, $3, $4 )",
@@ -800,7 +800,7 @@ impl Consensus {
             )
             .execute(get_pool()?)
             .await
-            .map_err(|_| new_io_error("database failure."))?;
+            .map_err(|_| anyhow!("database failure."))?;
         }
 
         Ok(())

@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate log;
 
+#[macro_use]
+extern crate anyhow;
+
 mod group;
 mod layer;
 mod models;
@@ -12,11 +15,8 @@ use simplelog::{CombinedLogger, Config as LogConfig, LevelFilter};
 use std::env::args;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tdn::prelude::*;
-use tokio::{
-    io::Result,
-    sync::{mpsc::Sender, RwLock},
-};
+use tdn::{prelude::*, types::primitive::Result};
+use tokio::sync::{mpsc::Sender, RwLock};
 
 pub const DEFAULT_P2P_ADDR: &'static str = "127.0.0.1:7366"; // DEBUG CODE
 pub const DEFAULT_HTTP_ADDR: &'static str = "127.0.0.1:8002"; // DEBUG CODE
