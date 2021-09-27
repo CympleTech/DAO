@@ -570,7 +570,7 @@ impl Message {
 /// Group Chat Message Model.
 pub(crate) struct Manager {
     /// db auto-increment id.
-    id: i64,
+    pub id: i64,
     /// manager's gid.
     pub gid: GroupId,
     /// limit group times.
