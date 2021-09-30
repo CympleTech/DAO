@@ -3,12 +3,11 @@ name = "group-chat"
 version = "0.1.0"
 authors = ["CympleTech <contact@cympletech.com>"]
 edition = "2018"
+readme = "README.md"
+description = "ESSE group chat service."
+repository = "https://github.com/cympletech/group-chat"
+keywords = ["distributed", "p2p", "group chat", "IM"]
 license = "MIT/Apache-2.0"
-
-[workspace]
-members = [
-    "types",
-]
 
 [dependencies]
 anyhow = "1.0"
@@ -26,8 +25,8 @@ hex = "0.4"
 bincode = "1.3"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
-group-chat_types = { version = "0.1", path = "./types" }
 sqlx = { version = "0.5", features = [ "runtime-tokio-native-tls", "postgres" ] }
 tdn = { version = "0.5", default-features = false, features = ["full"] }
 tdn_did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
 tdn_storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
+group-chat_types = { git = "https://github.com/cympletech/esse_types", branch="main" }
