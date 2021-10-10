@@ -6,11 +6,12 @@ extern crate anyhow;
 
 mod group;
 mod layer;
+mod manager;
 mod models;
 mod rpc;
 mod storage;
 
-use group_chat_types::GROUP_CHAT_ID;
+use group_chat_types::{GroupType, GROUP_CHAT_ID};
 use simplelog::{CombinedLogger, Config as LogConfig, LevelFilter};
 use std::env::args;
 use std::path::PathBuf;
@@ -21,6 +22,18 @@ use tokio::sync::{mpsc::Sender, RwLock};
 pub const DEFAULT_P2P_ADDR: &'static str = "0.0.0.0:7366"; // DEBUG CODE
 pub const DEFAULT_HTTP_ADDR: &'static str = "127.0.0.1:8002"; // DEBUG CODE
 pub const DEFAULT_LOG_FILE: &'static str = "esse.log.txt";
+
+/// default name about this provider.
+pub const NAME: &'static str = "group.esse";
+
+/// supported group types.
+pub const SUPPORTED: [GroupType; 3] = [GroupType::Encrypted, GroupType::Private, GroupType::Open];
+
+/// allow anonymous create groups.
+pub const PERMISSIONLESS: bool = true;
+
+/// default number that owner can created groups.
+pub const DEFAULT_REMAIN: i32 = 10;
 
 #[tokio::main]
 async fn main() {

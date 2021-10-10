@@ -11,8 +11,10 @@ use group_chat_types::{
     LayerResult, GROUP_CHAT_ID,
 };
 
-use crate::models::{Consensus, ConsensusType, GroupChat, Manager, Member, Message, Request};
+use crate::manager::Manager;
+use crate::models::{Consensus, ConsensusType, GroupChat, Member, Message, Request};
 use crate::storage::{delete_avatar, init_local_files, read_avatar, write_avatar};
+use crate::{DEFAULT_REMAIN, NAME, PERMISSIONLESS, SUPPORTED};
 
 /// Group chat server to ESSE.
 #[inline]
@@ -22,8 +24,6 @@ pub fn add_layer(results: &mut HandleResult, gid: GroupId, msg: SendType) {
 
 pub(crate) struct Layer {
     base: PathBuf,
-    /// managers that can created group chat here.
-    managers: HashMap<GroupId, (bool, i32)>, // TODO need deleted.
     /// running groups, with members info.
     /// params: online members (member id, member address, is manager), current height, db id.
     groups: HashMap<GroupId, (Vec<(GroupId, PeerAddr, bool)>, i64, i64)>,
@@ -31,13 +31,6 @@ pub(crate) struct Layer {
 
 impl Layer {
     pub(crate) async fn new(base: PathBuf) -> Result<Layer> {
-        // load managers
-        let ms = Manager::all().await?;
-        let mut managers = HashMap::new();
-        for manager in ms {
-            managers.insert(manager.gid, (manager.is_closed, manager.times));
-        }
-
         // load groups
         let gs = GroupChat::all().await?;
         let mut groups = HashMap::new();
@@ -45,11 +38,7 @@ impl Layer {
             groups.insert(group.g_id, (vec![], group.height, group.id));
         }
 
-        Ok(Layer {
-            base,
-            managers,
-            groups,
-        })
+        Ok(Layer { base, groups })
     }
 
     pub(crate) async fn handle(&mut self, gid: GroupId, msg: RecvType) -> Result<HandleResult> {
@@ -145,74 +134,114 @@ impl Layer {
                 // TODO
             }
             LayerEvent::Check => {
-                let supported = vec![GroupType::Encrypted, GroupType::Private, GroupType::Open];
-                let res = if let Some((is_closed, limit)) = self.managers.get(&fmid) {
-                    if *is_closed {
-                        LayerEvent::CheckResult(CheckType::Suspend, supported)
-                    } else if *limit > 0 {
-                        LayerEvent::CheckResult(CheckType::Allow, supported)
+                let (t, r) = if let Ok(manager) = Manager::get(&fmid).await {
+                    if manager.is_closed {
+                        (CheckType::Suspend, manager.times)
+                    } else if manager.times > 0 {
+                        (CheckType::Allow, manager.times)
                     } else {
-                        LayerEvent::CheckResult(CheckType::None, supported)
+                        (CheckType::None, 0)
                     }
                 } else {
-                    LayerEvent::CheckResult(CheckType::Deny, supported)
+                    if PERMISSIONLESS {
+                        (CheckType::Allow, DEFAULT_REMAIN)
+                    } else {
+                        (CheckType::Deny, 0)
+                    }
                 };
+                let res = LayerEvent::CheckResult(t, NAME.to_owned(), r as i64, SUPPORTED.to_vec());
                 let data = bincode::serialize(&res).unwrap_or(vec![]);
                 let s = SendType::Event(0, addr, data);
                 add_layer(results, fmid, s);
             }
             LayerEvent::Create(info, _proof) => {
-                let supported = vec![GroupType::Encrypted, GroupType::Private, GroupType::Open];
-                let (res, ok) = if let Some((is_closed, limit)) = self.managers.get(&fmid) {
-                    if !*is_closed && *limit > 0 {
-                        // TODO check proof.
-                        let gcd = match info {
-                            GroupInfo::Common(
-                                owner,
-                                owner_name,
-                                owner_avatar,
-                                gcd,
-                                gt,
-                                need_agree,
-                                name,
-                                bio,
-                                avatar,
-                            ) => {
-                                let mut gc =
-                                    GroupChat::new(owner, gcd, gt, name, bio, need_agree, vec![]);
-
-                                gc.insert().await?;
-
-                                let _ = init_local_files(&self.base, &gc.g_id).await;
-                                let _ = write_avatar(&self.base, &gc.g_id, &gc.g_id, &avatar).await;
-
-                                // add frist member.
-                                let mut mem = Member::new(gc.id, owner, addr, owner_name, true);
-                                mem.insert().await?;
-                                // save member avatar.
-                                let _ =
-                                    write_avatar(&self.base, &gc.g_id, &mem.m_id, &owner_avatar)
-                                        .await;
-                                println!("add member ok");
-
-                                self.create_group(gc.id, gcd, fmid, addr);
-                                println!("add group ok");
-
-                                self.add_height(&gcd, &mem.id, ConsensusType::MemberJoin)
-                                    .await?;
-                                println!("add consensus ok");
-                                gcd
-                            }
-                            GroupInfo::Encrypted(gcd, ..) => gcd,
-                        };
-                        (LayerEvent::CreateResult(gcd, true), true)
-                    } else {
-                        (LayerEvent::CheckResult(CheckType::None, supported), false)
-                    }
+                let manager = if let Ok(manager) = Manager::get(&fmid).await {
+                    manager
                 } else {
-                    (LayerEvent::CheckResult(CheckType::Deny, supported), false)
+                    if PERMISSIONLESS {
+                        // add manager.
+                        let mut manager = Manager::new(fmid);
+                        manager.insert().await?;
+                        manager
+                    } else {
+                        // return Deny to outside.
+                        let res =
+                            LayerEvent::CheckResult(CheckType::Deny, "".to_owned(), 0, vec![]);
+                        let data = bincode::serialize(&res).unwrap_or(vec![]);
+                        let s = SendType::Event(0, addr, data);
+                        add_layer(results, fmid, s);
+                        return Ok(());
+                    }
                 };
 
+                if manager.is_closed {
+                    let res = LayerEvent::CheckResult(
+                        CheckType::Suspend,
+                        NAME.to_owned(),
+                        manager.times as i64,
+                        SUPPORTED.to_vec(),
+                    );
+                    let data = bincode::serialize(&res).unwrap_or(vec![]);
+                    let s = SendType::Event(0, addr, data);
+                    add_layer(results, fmid, s);
+                    return Ok(());
+                }
+
+                if manager.times == 0 {
+                    let res = LayerEvent::CheckResult(
+                        CheckType::None,
+                        NAME.to_owned(),
+                        0,
+                        SUPPORTED.to_vec(),
+                    );
+                    let data = bincode::serialize(&res).unwrap_or(vec![]);
+                    let s = SendType::Event(0, addr, data);
+                    add_layer(results, fmid, s);
+                    return Ok(());
+                }
+
+                // TODO check proof.
+                let gcd = match info {
+                    GroupInfo::Common(
+                        owner,
+                        owner_name,
+                        owner_avatar,
+                        gcd,
+                        gt,
+                        need_agree,
+                        name,
+                        bio,
+                        avatar,
+                    ) => {
+                        let mut gc = GroupChat::new(owner, gcd, gt, name, bio, need_agree, vec![]);
+
+                        gc.insert().await?;
+
+                        let _ = init_local_files(&self.base, &gc.g_id).await;
+                        let _ = write_avatar(&self.base, &gc.g_id, &gc.g_id, &avatar).await;
+
+                        // add frist member.
+                        let mut mem = Member::new(gc.id, owner, addr, owner_name, true);
+                        mem.insert().await?;
+                        // save member avatar.
+                        let _ = write_avatar(&self.base, &gc.g_id, &mem.m_id, &owner_avatar).await;
+                        println!("add member ok");
+
+                        // reduce manager remain.
+                        let _ = manager.reduce().await;
+
+                        self.create_group(gc.id, gcd, fmid, addr);
+                        println!("add group ok");
+
+                        self.add_height(&gcd, &mem.id, ConsensusType::MemberJoin)
+                            .await?;
+                        println!("add consensus ok");
+                        gcd
+                    }
+                    GroupInfo::Encrypted(gcd, ..) => gcd,
+                };
+
+                let res = LayerEvent::CreateResult(gcd, true);
                 let data = bincode::serialize(&res).unwrap_or(vec![]);
                 let s = SendType::Event(0, addr, data);
                 add_layer(results, fmid, s);
@@ -461,14 +490,6 @@ impl Layer {
             .get(gid)
             .map(|v| v.0.iter().map(|(g, a, _)| (*g, *a)).collect())
             .ok_or(anyhow!("Group missing"))
-    }
-
-    pub fn add_manager(&mut self, gid: GroupId, limit: i32) {
-        self.managers.insert(gid, (false, limit));
-    }
-
-    pub fn remove_manager(&mut self, gid: &GroupId) {
-        self.managers.remove(gid);
     }
 
     pub fn create_group(&mut self, id: i64, gid: GroupId, rid: GroupId, raddr: PeerAddr) {
