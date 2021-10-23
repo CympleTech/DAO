@@ -2,7 +2,7 @@
 name = "group-chat"
 version = "0.1.0"
 authors = ["CympleTech <contact@cympletech.com>"]
-edition = "2018"
+edition = "2021"
 readme = "README.md"
 description = "ESSE group chat service."
 repository = "https://github.com/cympletech/group-chat"
