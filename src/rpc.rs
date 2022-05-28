@@ -23,7 +23,7 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, layer: Arc<RwLock<Layer>>) -> RpcH
     // MOCK
     handler.add_method(
         "list-managers",
-        |_gid: GroupId, _params: Vec<RpcParam>, state: Arc<RpcState>| async move {
+        |_params: Vec<RpcParam>, state: Arc<RpcState>| async move {
             let managers = Manager::all().await?;
             let mut vecs = vec![];
             for manager in managers {
@@ -41,7 +41,7 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, layer: Arc<RwLock<Layer>>) -> RpcH
     // MOCK
     handler.add_method(
         "add-manager",
-        |_gid: GroupId, params: Vec<RpcParam>, _state: Arc<RpcState>| async move {
+        |params: Vec<RpcParam>, _state: Arc<RpcState>| async move {
             let gid = GroupId::from_hex(params[0].as_str().ok_or(RpcError::ParseError)?)?;
 
             let mut results = HandleResult::rpc(json!(params));
@@ -56,7 +56,7 @@ pub(crate) fn new_rpc_handler(addr: PeerAddr, layer: Arc<RwLock<Layer>>) -> RpcH
     // MOCK
     handler.add_method(
         "remove-manager",
-        |_gid: GroupId, params: Vec<RpcParam>, _state: Arc<RpcState>| async move {
+        |params: Vec<RpcParam>, _state: Arc<RpcState>| async move {
             let gid = GroupId::from_hex(params[0].as_str().ok_or(RpcError::ParseError)?)?;
 
             let mut results = HandleResult::rpc(json!(params));

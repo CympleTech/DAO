@@ -1,5 +1,5 @@
 -- Add migration script here
-CREATE TABLE IF NOT EXISTS groups
+CREATE TABLE IF NOT EXISTS daos
 (
   id            BIGSERIAL PRIMARY KEY,
   owner         CHAR(64) NOT NULL,

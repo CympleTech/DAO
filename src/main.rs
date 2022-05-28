@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 #[macro_use]
 extern crate anyhow;
@@ -11,20 +11,20 @@ mod models;
 mod rpc;
 mod storage;
 
-use group_chat_types::{GroupType, GROUP_CHAT_ID};
-use simplelog::{CombinedLogger, Config as LogConfig, LevelFilter};
+use dao_types::{DaoType, DAO_ID};
 use std::env::args;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tdn::{prelude::*, types::primitive::Result};
 use tokio::sync::{mpsc::Sender, RwLock};
+use tracing_subscriber::{filter::LevelFilter, prelude::*};
 
 pub const DEFAULT_P2P_ADDR: &'static str = "0.0.0.0:7366"; // DEBUG CODE
 pub const DEFAULT_HTTP_ADDR: &'static str = "127.0.0.1:8002"; // DEBUG CODE
-pub const DEFAULT_LOG_FILE: &'static str = "esse.log.txt";
+pub const DEFAULT_LOG_FILE: &'static str = "dao.log.txt";
 
 /// default name about this provider.
-pub const NAME: &'static str = "group.esse";
+pub const NAME: &'static str = "dao.esse";
 
 /// supported group types.
 pub const SUPPORTED: [GroupType; 3] = [GroupType::Encrypted, GroupType::Private, GroupType::Open];
@@ -173,20 +173,13 @@ async fn handle(handle_result: HandleResult, uid: u64, sender: &Sender<SendMessa
 pub fn init_log(mut db_path: PathBuf) {
     db_path.push(DEFAULT_LOG_FILE);
 
-    #[cfg(debug_assertions)]
-    CombinedLogger::init(vec![simplelog::TermLogger::new(
-        LevelFilter::Debug,
-        LogConfig::default(),
-        simplelog::TerminalMode::Mixed,
-        simplelog::ColorChoice::Auto,
-    )])
-    .unwrap();
-
-    #[cfg(not(debug_assertions))]
-    CombinedLogger::init(vec![simplelog::WriteLogger::new(
-        LevelFilter::Debug,
-        LogConfig::default(),
-        std::fs::File::create(db_path).unwrap(),
-    )])
-    .unwrap();
+    let console_layer = console_subscriber::spawn();
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_level(true)
+                .with_filter(LevelFilter::DEBUG),
+        )
+        .init();
 }

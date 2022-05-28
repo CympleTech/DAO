@@ -1,6 +1,6 @@
-# Group Chat
+# DAO service
 
-WIP [Discuss](https://github.com/CympleTech/esse/discussions/5)
+WIP [Discuss](https://github.com/CympleTech/esse/discussions/20)
 
 
 ## Database prepare

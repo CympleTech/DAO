@@ -1,32 +1,36 @@
 [package]
-name = "group-chat"
+name = "dao"
 version = "0.1.0"
-authors = ["CympleTech <contact@cympletech.com>"]
+authors = ["CympleTech <dev@cympletech.com>"]
 edition = "2021"
 readme = "README.md"
-description = "ESSE group chat service."
-repository = "https://github.com/cympletech/group-chat"
-keywords = ["distributed", "p2p", "group chat", "IM"]
+description = "ESSE DAO service."
+repository = "https://github.com/cympletech/DAO"
+keywords = ["distributed", "p2p", "DAO"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
+aes-gcm = "0.9"
 anyhow = "1.0"
-log = "0.4"
-rand = "0.8"
-simplelog = "=0.10.0"
-image = "0.23"
-blake3 = "0.3"
-aes-gcm = "0.8"
-sysinfo = "0.16"
-once_cell = "1.7"
-config = "0.11"
+bincode = "1.3"
+blake3 = "1.3"
 dotenv = "0.15"
 hex = "0.4"
-bincode = "1.3"
+once_cell = "1.10"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.5", features = [ "runtime-tokio-native-tls", "postgres" ] }
-tdn = { version = "0.5", default-features = false, features = ["full"] }
-tdn_did = { git = "https://github.com/cypherlink/tdn-did", branch="main" }
-tdn_storage = { git = "https://github.com/cypherlink/tdn-storage", branch="main" }
-group-chat_types = { git = "https://github.com/cympletech/esse_types", branch="main" }
+tdn = { version = "0.8", default-features = false, features = ["std"] }
+tdn_did = { version = "0.8" }
+tdn_storage = { git = "https://github.com/cympletech/tdn", branch="main" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+
+dao_types = { git = "https://github.com/cympletech/esse", branch="main" }
+
+# DEBUG patch.
+[patch.crates-io]
+chamomile = { git = "https://github.com/cympletech/chamomile" }
+chamomile_types = { git = "https://github.com/cympletech/chamomile" }
+tdn = { git = "https://github.com/cympletech/tdn" }
+tdn_types = { git = "https://github.com/cympletech/tdn" }
+tdn_did = { git = "https://github.com/cympletech/tdn" }
